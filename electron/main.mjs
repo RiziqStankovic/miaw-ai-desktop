@@ -1,5 +1,6 @@
 import 'dotenv/config';
 
+import { pathToFileURL } from 'node:url';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -9,7 +10,9 @@ import {
   BrowserWindow,
   globalShortcut,
   ipcMain,
+  net,
   nativeImage,
+  protocol,
   Tray
 } from 'electron';
 
@@ -204,6 +207,15 @@ function setupTray() {
 
 app.whenReady().then(async () => {
   app.setName('Miaw');
+  protocol.handle('asset', (request) => {
+    const url = new URL(request.url);
+    const encodedPath = url.pathname.startsWith('/')
+      ? url.pathname.slice(1)
+      : url.pathname;
+    const filePath = decodeURIComponent(encodedPath);
+    return net.fetch(pathToFileURL(filePath).toString());
+  });
+
   const backend = await initializeBackend({
     app,
     getWindow: () => mainWindow

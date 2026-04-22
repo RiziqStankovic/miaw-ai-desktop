@@ -20,6 +20,10 @@ import { OnboardingView } from './view/onboarding/index';
 import type { OnboardingStage } from './view/onboarding/index';
 import { HistoryPanel } from './components/HistoryPanel';
 import { ImagePreviewModal } from './components/ImagePreviewModal';
+import {
+  SettingsPanel,
+  type ProviderSettings,
+} from './components/SettingsPanel';
 import type { AttachedImage } from './types/image';
 import { MAX_IMAGE_SIZE_BYTES } from './types/image';
 import { quote } from './config';
@@ -30,7 +34,7 @@ import {
 } from './config/commands';
 import './App.css';
 
-/** Fallback model name used before get_model_config resolves at startup. */
+/** Fallback model name used before runtime provider settings resolve at startup. */
 const DEFAULT_MODEL_FALLBACK = 'gemma4:e2b';
 
 const OVERLAY_VISIBILITY_EVENT = 'thuki://visibility';
@@ -113,6 +117,7 @@ function App() {
    * but rendered differently based on `isChatMode`).
    */
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   /**
    * True when the user clicked + while an unsaved conversation is active.
    * Causes the history dropdown to show a SwitchConfirmation prompt instead
@@ -236,6 +241,8 @@ function App() {
     active: string;
     all: string[];
   } | null>(null);
+  const [providerSettings, setProviderSettings] =
+    useState<ProviderSettings | null>(null);
 
   /**
    * True when the window is near the screen bottom and should grow upward.
@@ -258,6 +265,12 @@ function App() {
    */
   const canSave = !isGenerating && messages.some((m) => m.role === 'assistant');
   const shouldRenderOverlay = overlayState === 'visible';
+  const isIdleAskBar =
+    !isChatMode &&
+    query.trim().length === 0 &&
+    attachedImages.length === 0 &&
+    !isHistoryOpen &&
+    !isSettingsOpen;
 
   /**
    * Reference stored for ResizeObserver cleanup.
@@ -410,6 +423,7 @@ function App() {
       }
       setSelectedContext(context);
       setIsHistoryOpen(false);
+      setIsSettingsOpen(false);
       setCaptureError(null);
       if (!shouldPreserveSession) {
         setSessionId((id) => id + 1);
@@ -444,6 +458,8 @@ function App() {
     screenCaptureInputSnapshotRef.current = null;
     setSearchActive(false);
     setSelectedContext(null);
+    setIsHistoryOpen(false);
+    setIsSettingsOpen(false);
     setPreviewImageUrl(null);
     setAttachedImages((prev) => {
       for (const img of prev) URL.revokeObjectURL(img.blobUrl);
@@ -459,10 +475,20 @@ function App() {
 
   /** Ref attached to the chat-mode history dropdown for click-outside detection. */
   const historyDropdownRef = useRef<HTMLDivElement>(null);
+  /** Ref attached to the chat-mode settings dropdown for click-outside detection. */
+  const settingsDropdownRef = useRef<HTMLDivElement>(null);
 
   /** Toggles the history panel open/closed. */
   const handleHistoryToggle = useCallback(() => {
+    setIsSettingsOpen(false);
     setIsHistoryOpen((prev) => !prev);
+  }, []);
+
+  /** Toggles the runtime settings panel open/closed. */
+  const handleSettingsToggle = useCallback(() => {
+    setIsHistoryOpen(false);
+    setPendingNewConversation(false);
+    setIsSettingsOpen((prev) => !prev);
   }, []);
 
   /**
@@ -487,6 +513,27 @@ function App() {
     document.addEventListener('mousedown', handleMouseDown);
     return () => document.removeEventListener('mousedown', handleMouseDown);
   }, [isChatMode, isHistoryOpen]);
+
+  /**
+   * Close the chat-mode settings dropdown when the user clicks outside it.
+   */
+  useEffect(() => {
+    if (!(isChatMode && isSettingsOpen)) return;
+
+    const handleMouseDown = (e: MouseEvent) => {
+      const target = e.target as Element;
+      if (
+        settingsDropdownRef.current?.contains(target) ||
+        target.closest?.('[data-settings-toggle]')
+      ) {
+        return;
+      }
+      setIsSettingsOpen(false);
+    };
+
+    document.addEventListener('mousedown', handleMouseDown);
+    return () => document.removeEventListener('mousedown', handleMouseDown);
+  }, [isChatMode, isSettingsOpen]);
 
   // Clear any pending new-conversation confirmation whenever the panel closes.
   // Uses a ref-based approach to avoid the @eslint-react/set-state-in-effect
@@ -1290,11 +1337,12 @@ function App() {
     requestAnimationFrame(() => inputRef.current?.focus());
   }, [isSubmitPending, cancel, setSearchActive, setSelectedContext]);
 
-  /** Fetches model configuration from the backend once at mount. */
+  /** Fetches runtime provider settings from the backend once at mount. */
   useEffect(() => {
-    void invoke<{ active: string; all: string[] }>('get_model_config').then(
-      setModelConfig,
-    );
+    void invoke<ProviderSettings>('get_provider_settings').then((settings) => {
+      setProviderSettings(settings);
+      setModelConfig(settings.models);
+    });
   }, []);
 
   /**
@@ -1499,7 +1547,9 @@ function App() {
                   transition:
                     'height 0.25s cubic-bezier(0.16, 1, 0.3, 1), min-height 0.25s cubic-bezier(0.16, 1, 0.3, 1)',
                 }}
-                className={`morphing-container relative flex flex-col bg-surface-base backdrop-blur-2xl border border-surface-border max-h-[600px] overflow-hidden ${
+                className={`morphing-container ${
+                  isIdleAskBar ? 'morphing-container-idle' : ''
+                } relative flex flex-col bg-surface-base backdrop-blur-2xl border border-surface-border max-h-[600px] overflow-hidden ${
                   isChatMode
                     ? `rounded-lg shadow-chat`
                     : 'rounded-2xl shadow-bar'
@@ -1522,6 +1572,7 @@ function App() {
                       isSaved={isSaved}
                       canSave={canSave}
                       onNewConversation={handleNewConversation}
+                      onSettingsOpen={handleSettingsToggle}
                       onHistoryOpen={handleHistoryToggle}
                       onImagePreview={handleChatImagePreview}
                       searchStage={searchStage}
@@ -1566,6 +1617,30 @@ function App() {
                           currentConversationId={conversationId}
                         />
                       </motion.div>
+                    ) : isSettingsOpen ? (
+                      <motion.div
+                        key="ask-bar-settings"
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: 'auto', opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        transition={{
+                          height: {
+                            duration: 0.3,
+                            ease: [0.33, 1, 0.68, 1],
+                          },
+                          opacity: { duration: 0.2, delay: 0.08 },
+                        }}
+                        style={{ overflow: 'hidden' }}
+                        className="border-t border-surface-border p-3"
+                      >
+                        <SettingsPanel
+                          settings={providerSettings}
+                          onSaved={(settings) => {
+                            setProviderSettings(settings);
+                            setModelConfig(settings.models);
+                          }}
+                        />
+                      </motion.div>
                     ) : null}
                   </AnimatePresence>
                 )}
@@ -1592,6 +1667,7 @@ function App() {
                   inputRef={inputRef}
                   selectedText={selectedContext ?? undefined}
                   onHistoryOpen={handleHistoryToggle}
+                  onSettingsOpen={handleSettingsToggle}
                   attachedImages={isSubmitPending ? [] : attachedImages}
                   onImagesAttached={handleImagesAttached}
                   onImageRemove={handleImageRemove}
@@ -1629,6 +1705,28 @@ function App() {
                       onSaveAndNew={handleSaveAndNew}
                       onJustNew={handleJustNew}
                       onCancelNew={() => setIsHistoryOpen(false)}
+                    />
+                  </motion.div>
+                ) : null}
+              </AnimatePresence>
+
+              <AnimatePresence>
+                {isChatMode && isSettingsOpen ? (
+                  <motion.div
+                    ref={settingsDropdownRef}
+                    key="chat-settings"
+                    initial={{ opacity: 0, y: -8, scale: 0.97 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: -8, scale: 0.97 }}
+                    transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+                    className="absolute right-3 top-10 z-50 w-[min(28rem,calc(100%-1.5rem))]"
+                  >
+                    <SettingsPanel
+                      settings={providerSettings}
+                      onSaved={(settings) => {
+                        setProviderSettings(settings);
+                        setModelConfig(settings.models);
+                      }}
                     />
                   </motion.div>
                 ) : null}

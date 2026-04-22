@@ -65,6 +65,7 @@ interface ConversationViewProps {
    * Omit to hide the history button.
    */
   onHistoryOpen?: () => void;
+  onSettingsOpen?: () => void;
   /**
    * Called when the new-conversation (+) button is clicked.
    * Omit to hide the button.
@@ -100,6 +101,7 @@ export function ConversationView({
   isSaved,
   canSave,
   onHistoryOpen,
+  onSettingsOpen,
   onNewConversation,
   onImagePreview,
   searchStage = null,
@@ -204,6 +206,7 @@ export function ConversationView({
         isSaved={isSaved}
         canSave={canSave}
         onNewConversation={onNewConversation}
+        onSettingsOpen={onSettingsOpen}
         onHistoryOpen={onHistoryOpen}
       />
 

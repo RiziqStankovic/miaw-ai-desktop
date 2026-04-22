@@ -84,6 +84,23 @@ const HISTORY_ICON = (
   </svg>
 );
 
+const SETTINGS_ICON = (
+  <svg
+    width="13"
+    height="13"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    <circle cx="12" cy="12" r="3" />
+    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.01a1.65 1.65 0 0 0 .99-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 .99 1.51h.01a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.01a1.65 1.65 0 0 0 1.51.99H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51.99V15z" />
+  </svg>
+);
+
 interface WindowControlsProps {
   /** Triggers the overlay hide animation sequence. */
   onClose: () => void;
@@ -111,6 +128,7 @@ interface WindowControlsProps {
    * Omit to hide the history button entirely.
    */
   onHistoryOpen?: () => void;
+  onSettingsOpen?: () => void;
   /**
    * Called when the user clicks the new-conversation (+) button.
    * Omit to hide the button entirely.
@@ -126,6 +144,7 @@ export const WindowControls = memo(function WindowControls({
   isSaved = false,
   canSave = false,
   onHistoryOpen,
+  onSettingsOpen,
   onNewConversation,
 }: WindowControlsProps) {
   // Disabled only when there is nothing to save yet and the conversation hasn't
@@ -135,14 +154,14 @@ export const WindowControls = memo(function WindowControls({
   return (
     <div className="shrink-0 window-drag-region" data-window-drag-region>
       <div className="group flex items-center px-4 py-2.5">
-        <div className="flex items-center gap-1">
+        <div className="window-no-drag flex items-center gap-0.5">
         {/* Close button - reveals × icon on group hover.
             Padding enlarges the hit area to ~24×24px without changing the
             12×12px visual dot; negative margin preserves flex spacing. */}
         <button
           type="button"
           onClick={onClose}
-          className="group/close-btn window-no-drag p-1.5 -m-1.5 flex items-center justify-center rounded-full cursor-pointer"
+          className="group/close-btn flex h-5 w-5 items-center justify-center rounded-full cursor-pointer"
           aria-label="Close window"
         >
           <div className="w-3 h-3 rounded-full bg-[#FF5F57] flex items-center justify-center transition-transform duration-150 group-hover/close-btn:scale-125 group-active/close-btn:scale-90">
@@ -150,7 +169,7 @@ export const WindowControls = memo(function WindowControls({
               width="6"
               height="6"
               viewBox="0 0 6 6"
-              className="opacity-0 group-hover:opacity-100 transition-opacity duration-150"
+              className="opacity-0 group-hover/close-btn:opacity-100 transition-opacity duration-150"
               aria-hidden="true"
             >
               <path
@@ -166,7 +185,7 @@ export const WindowControls = memo(function WindowControls({
         <button
           type="button"
           onClick={onMinimize}
-          className="group/min-btn window-no-drag p-1.5 -m-1.5 flex items-center justify-center rounded-full cursor-pointer"
+          className="group/min-btn flex h-5 w-5 items-center justify-center rounded-full cursor-pointer"
           aria-label="Minimize window"
         >
           <div className="window-traffic-dot window-traffic-dot-minimize">
@@ -190,7 +209,7 @@ export const WindowControls = memo(function WindowControls({
         <button
           type="button"
           onClick={onToggleMaximize}
-          className="group/max-btn window-no-drag p-1.5 -m-1.5 flex items-center justify-center rounded-full cursor-pointer"
+          className="group/max-btn flex h-5 w-5 items-center justify-center rounded-full cursor-pointer"
           aria-label="Toggle maximize"
         >
           <div className="window-traffic-dot window-traffic-dot-maximize">
@@ -249,6 +268,20 @@ export const WindowControls = memo(function WindowControls({
                 className="window-no-drag w-7 h-7 flex items-center justify-center rounded-lg text-text-secondary hover:text-text-primary hover:bg-white/5 transition-colors duration-150 cursor-pointer"
               >
                 {NEW_CONVERSATION_ICON}
+              </button>
+            </Tooltip>
+          )}
+
+          {onSettingsOpen !== undefined && (
+            <Tooltip label="Model settings">
+              <button
+                type="button"
+                onClick={onSettingsOpen}
+                aria-label="Open model settings"
+                data-settings-toggle
+                className="window-no-drag w-7 h-7 flex items-center justify-center rounded-lg text-text-secondary hover:text-text-primary hover:bg-white/5 transition-colors duration-150 cursor-pointer"
+              >
+                {SETTINGS_ICON}
               </button>
             </Tooltip>
           )}

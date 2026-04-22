@@ -154,6 +154,42 @@ body {
   border-top-color: rgba(255, 141, 92, 0.2);
 }
 
+.morphing-container-idle::after {
+  content: '';
+  position: absolute;
+  inset: -18%;
+  border-radius: inherit;
+  background:
+    conic-gradient(
+      from 0deg,
+      transparent 0deg,
+      rgba(255, 141, 92, 0.02) 32deg,
+      rgba(255, 168, 112, 0.18) 64deg,
+      rgba(255, 201, 147, 0.08) 92deg,
+      transparent 128deg,
+      transparent 360deg
+    );
+  filter: blur(22px) saturate(1.05);
+  opacity: 0.95;
+  pointer-events: none;
+  animation: idle-solar-sweep 9s linear infinite;
+  z-index: 0;
+}
+
+.morphing-container-idle > * {
+  position: relative;
+  z-index: 1;
+}
+
+@keyframes idle-solar-sweep {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 /* Subtle glowing line at the very top edge - matches approved onboarding style */
 .morphing-container::before {
   content: '';

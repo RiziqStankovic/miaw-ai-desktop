@@ -8,8 +8,13 @@
   "main": "electron/main.mjs",
   "scripts": {
     "dev": "concurrently -k \"vite\" \"wait-on tcp:1420 && cross-env VITE_DEV_SERVER_URL=http://127.0.0.1:1420 electron .\"",
+    "generate:icon": "node ./scripts/generate-miaw-ico.mjs",
     "build": "vite build",
-    "preview": "vite preview"
+    "start": "cross-env NODE_ENV=production electron .",
+    "preview": "vite preview",
+    "dist:portable": "npm run generate:icon && npm run build && electron-builder --win portable",
+    "dist:win": "npm run generate:icon && npm run build && electron-builder --win nsis",
+    "dist": "npm run generate:icon && npm run build && electron-builder --win"
   },
   "dependencies": {
     "dotenv": "^17.4.2",
@@ -28,8 +33,52 @@
     "concurrently": "^9.2.1",
     "cross-env": "^10.1.0",
     "electron": "^36.9.5",
+    "electron-builder": "^26.0.12",
     "typescript": "~6.0.2",
     "vite": "^7.3.2",
     "wait-on": "^8.0.5"
+  },
+  "build": {
+    "appId": "id.cloudfren.miaw",
+    "productName": "Miaw",
+    "executableName": "Miaw",
+    "copyright": "Copyright (c) 2026 Cloudfren",
+    "artifactName": "Miaw-${version}-${arch}.${ext}",
+    "asar": true,
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**",
+      "electron/**",
+      "public/**",
+      "package.json",
+      "node_modules/**"
+    ],
+    "extraMetadata": {
+      "main": "electron/main.mjs"
+    },
+    "win": {
+      "publisherName": "Cloudfren",
+      "target": [
+        "portable",
+        "nsis"
+      ],
+      "icon": "icons/miaw.ico",
+      "legalTrademarks": "Miaw"
+    },
+    "portable": {
+      "artifactName": "Miaw-${version}-portable-${arch}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "artifactName": "Miaw-${version}-setup-${arch}.${ext}",
+      "shortcutName": "Miaw",
+      "uninstallDisplayName": "Miaw",
+      "installerIcon": "icons/miaw.ico",
+      "uninstallerIcon": "icons/miaw.ico",
+      "installerHeaderIcon": "icons/miaw.ico"
+    }
   }
 }

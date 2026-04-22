@@ -47,6 +47,47 @@ function providerConfig() {
   };
 }
 
+function parseModels(raw) {
+  const all = String(raw ?? '')
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
+
+  return {
+    active: all[0] ?? DEFAULT_MODEL_NAME,
+    all: all.length > 0 ? all : [DEFAULT_MODEL_NAME]
+  };
+}
+
+function normalizeProviderSettings(input = {}) {
+  const provider = String(input.provider ?? 'litellm').trim() || 'litellm';
+  const baseUrl =
+    String(input.baseUrl ?? DEFAULT_API_BASE_URL).trim() || DEFAULT_API_BASE_URL;
+  const apiKey = String(input.apiKey ?? '').trim() || null;
+  const systemPrompt =
+    String(input.systemPrompt ?? DEFAULT_SYSTEM_PROMPT).trim() ||
+    DEFAULT_SYSTEM_PROMPT;
+  const models = Array.isArray(input.models)
+    ? input.models.map((item) => String(item).trim()).filter(Boolean)
+    : String(input.models ?? '').split(',').map((item) => item.trim()).filter(Boolean);
+  const parsedModels = parseModels(models.join(','));
+
+  return {
+    provider,
+    baseUrl,
+    apiKey,
+    systemPrompt,
+    models: parsedModels
+  };
+}
+
+function buildOpenAICompatiblePath(baseUrl, resourcePath) {
+  const normalizedBaseUrl = baseUrl.replace(/\/$/, '');
+  return /\/v\d+$/.test(normalizedBaseUrl)
+    ? `${normalizedBaseUrl}/${resourcePath.replace(/^\//, '')}`
+    : `${normalizedBaseUrl}/v1/${resourcePath.replace(/^\//, '')}`;
+}
+
 async function ensureDir(dir) {
   await fs.mkdir(dir, { recursive: true });
 }
@@ -215,10 +256,10 @@ async function streamChat({
     headers.Authorization = `Bearer ${config.apiKey}`;
   }
 
-  const normalizedBaseUrl = config.baseUrl.replace(/\/$/, '');
-  const chatEndpoint = /\/v\d+$/.test(normalizedBaseUrl)
-    ? `${normalizedBaseUrl}/chat/completions`
-    : `${normalizedBaseUrl}/v1/chat/completions`;
+  const chatEndpoint = buildOpenAICompatiblePath(
+    config.baseUrl,
+    'chat/completions'
+  );
 
   const response = await fetch(chatEndpoint, {
     method: 'POST',
@@ -349,7 +390,7 @@ export async function initializeBackend({ app }) {
   const images = await createImageStore(userDataPath);
 
   return {
-    config: providerConfig(),
+    config: normalizeProviderSettings(providerConfig()),
     database,
     images,
     inMemoryConversation: [],
@@ -423,6 +464,31 @@ export function createCommandHandlers({ app, backend, getWindow }) {
     return value;
   }
 
+  function readProviderSettings() {
+    const defaults = normalizeProviderSettings(providerConfig());
+    const rawModels =
+      getConfig('provider_models') ?? defaults.models.all.join(',');
+    return normalizeProviderSettings({
+      provider: getConfig('provider_name') ?? defaults.provider,
+      baseUrl: getConfig('provider_base_url') ?? defaults.baseUrl,
+      apiKey: getConfig('provider_api_key') ?? defaults.apiKey,
+      systemPrompt:
+        getConfig('provider_system_prompt') ?? defaults.systemPrompt,
+      models: rawModels
+    });
+  }
+
+  async function saveProviderSettings(nextSettings) {
+    setConfig('provider_name', nextSettings.provider);
+    setConfig('provider_base_url', nextSettings.baseUrl);
+    setConfig('provider_api_key', nextSettings.apiKey ?? '');
+    setConfig('provider_system_prompt', nextSettings.systemPrompt);
+    setConfig('provider_models', nextSettings.models.all.join(','));
+    backend.config = nextSettings;
+    await persistDb();
+    return nextSettings;
+  }
+
   return {
     '__window.hide': async () => {
       getWindow()?.hide();
@@ -456,6 +522,72 @@ export function createCommandHandlers({ app, backend, getWindow }) {
       });
     },
     get_model_config: async () => backend.config.models,
+    get_provider_settings: async () => {
+      const settings = readProviderSettings();
+      backend.config = settings;
+      return settings;
+    },
+    update_provider_settings: async (payload) => {
+      const nextSettings = normalizeProviderSettings(payload);
+      return saveProviderSettings(nextSettings);
+    },
+    ping_provider_connection: async (payload = {}) => {
+      const settings = normalizeProviderSettings({
+        ...readProviderSettings(),
+        ...payload
+      });
+      const startedAt = nowMillis();
+      const headers = {};
+      if (settings.apiKey) {
+        headers.Authorization = `Bearer ${settings.apiKey}`;
+      }
+
+      try {
+        const response = await fetch(
+          buildOpenAICompatiblePath(settings.baseUrl, 'models'),
+          { headers }
+        );
+        const latencyMs = nowMillis() - startedAt;
+
+        if (!response.ok) {
+          return {
+            ok: false,
+            latencyMs,
+            status: response.status,
+            message: `HTTP ${response.status}`
+          };
+        }
+
+        const body = await response.json().catch(() => ({}));
+        const models = Array.isArray(body?.data)
+          ? body.data
+              .map((item) => String(item?.id ?? '').trim())
+              .filter(Boolean)
+          : [];
+        const activeModel = settings.models.active;
+        const modelFound =
+          models.length === 0 ? null : models.includes(activeModel);
+
+        return {
+          ok: modelFound === false ? false : true,
+          latencyMs,
+          status: response.status,
+          message:
+            modelFound === false
+              ? `Connected, but model "${activeModel}" was not found in /models`
+              : 'Connection successful',
+          models
+        };
+      } catch (error) {
+        return {
+          ok: false,
+          latencyMs: nowMillis() - startedAt,
+          status: null,
+          message: String(error?.message ?? error),
+          models: []
+        };
+      }
+    },
     notify_frontend_ready: async () => {
       if (backend.launchShown) {
         return;
@@ -518,12 +650,21 @@ export function createCommandHandlers({ app, backend, getWindow }) {
       const controller = new AbortController();
       backend.activeGeneration = controller;
 
+      const images = await encodeImagesAsDataUrls(imagePaths);
+      const hasImages = images.length > 0;
+      const trimmedMessage = String(message ?? '').trim();
+      const effectiveMessage = hasImages
+        ? trimmedMessage ||
+          'Analyze the attached screenshot or image and explain what is visible.'
+        : trimmedMessage;
+      const imageInstruction = hasImages
+        ? `[Attached Images]\nThe user attached ${images.length} image(s). Analyze the attached image content directly. Do not say you cannot see the screenshot or that no image was provided unless the image payload is actually missing or unreadable.\n\n`
+        : '';
       const content =
         quotedText && String(quotedText).trim()
-          ? `[Highlighted Text]\n"${quotedText}"\n\n[Request]\n${message}`
-          : message;
+          ? `${imageInstruction}[Highlighted Text]\n"${quotedText}"\n\n[Request]\n${effectiveMessage}`
+          : `${imageInstruction}${effectiveMessage}`;
 
-      const images = await encodeImagesAsDataUrls(imagePaths);
       const userMessage = {
         role: 'user',
         content,

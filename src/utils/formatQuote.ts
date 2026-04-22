@@ -8,7 +8,7 @@
  * @returns Formatted quote suitable for display
  */
 export function formatQuotedText(
-  text: string,
+  text: string, 
   maxLines: number = 4,
   maxChars: number = 300,
 ): string {

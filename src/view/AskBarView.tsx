@@ -120,6 +120,33 @@ const HISTORY_ICON = (
   </svg>
 );
 
+const SETTINGS_ICON = (
+  <svg
+    width="14"
+    height="14"
+    viewBox="0 0 24 24"
+    fill="none"
+    xmlns="http://www.w3.org/2000/svg"
+    aria-hidden="true"
+  >
+    <circle
+      cx="12"
+      cy="12"
+      r="3"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+    />
+    <path
+      d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.01a1.65 1.65 0 0 0 .99-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 .99 1.51h.01a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.01a1.65 1.65 0 0 0 1.51.99H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51.99V15z"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+  </svg>
+);
+
 /** Hoisted static camera icon - triggers screenshot capture. */
 const CAMERA_ICON = (
   <svg
@@ -221,6 +248,7 @@ interface AskBarViewProps {
    * Omit to hide the history icon entirely.
    */
   onHistoryOpen?: () => void;
+  onSettingsOpen?: () => void;
   /** Currently attached images (may still be processing in the background). */
   attachedImages: AttachedImage[];
   /** Called when the user pastes image files. */
@@ -255,6 +283,7 @@ export function AskBarView({
   inputRef,
   selectedText,
   onHistoryOpen,
+  onSettingsOpen,
   attachedImages,
   onImagesAttached,
   onImageRemove,
@@ -581,14 +610,18 @@ export function AskBarView({
       </AnimatePresence>
       <div className="relative window-drag-region" data-window-drag-region>
         <div className="flex items-center w-full px-3 py-2.5 gap-2">
-          <img
-            src="/miaw-logo.png"
-            alt="Miaw"
-            className={`shrink-0 object-cover object-center transition-all duration-300 ease-out ${
-              isChatMode ? 'w-6 h-6 rounded-lg' : 'w-10 h-10 rounded-xl'
+          <div
+            className={`shrink-0 overflow-hidden transition-all duration-300 ease-out ${
+              isChatMode ? 'w-7 h-7 rounded-lg' : 'w-11 h-11 rounded-xl'
             }`}
-            draggable={false}
-          />
+          >
+            <img
+              src="/miaw-logo.png"
+              alt="Miaw"
+              className="w-full h-full object-cover object-center scale-[1.26]"
+              draggable={false}
+            />
+          </div>
 
           {/* Compact history entry point: ask-bar mode only. In chat mode the
             history button lives in the ConversationView header. */}
@@ -600,6 +633,18 @@ export function AskBarView({
               className="window-no-drag shrink-0 w-7 h-7 flex items-center justify-center rounded-lg text-text-secondary hover:text-text-primary hover:bg-white/8 transition-colors duration-150 cursor-pointer outline-none"
             >
               {HISTORY_ICON}
+            </button>
+          )}
+
+          {!isChatMode && onSettingsOpen && (
+            <button
+              type="button"
+              onClick={onSettingsOpen}
+              aria-label="Open model settings"
+              data-settings-toggle
+              className="window-no-drag shrink-0 w-7 h-7 flex items-center justify-center rounded-lg text-text-secondary hover:text-text-primary hover:bg-white/8 transition-colors duration-150 cursor-pointer outline-none"
+            >
+              {SETTINGS_ICON}
             </button>
           )}
 
@@ -629,31 +674,23 @@ export function AskBarView({
             />
           </div>
 
-          {isAtMaxImages ? (
-            <Tooltip label="Maximum 3 images attached">
-              <button
-                type="button"
-                onClick={onScreenshot}
-                disabled
-                aria-label="Take screenshot"
-                className="window-no-drag shrink-0 w-7 h-7 flex items-center justify-center rounded-lg text-text-secondary transition-colors duration-150 disabled:opacity-40 disabled:cursor-default cursor-pointer"
-              >
-                {CAMERA_ICON}
-              </button>
-            </Tooltip>
-          ) : (
-            <Tooltip label="Take a screenshot">
-              <button
-                type="button"
-                onClick={onScreenshot}
-                disabled={isBusy}
-                aria-label="Take screenshot"
-                className="window-no-drag shrink-0 w-7 h-7 flex items-center justify-center rounded-lg text-text-secondary hover:text-text-primary hover:bg-white/8 transition-colors duration-150 disabled:opacity-40 disabled:cursor-default cursor-pointer"
-              >
-                {CAMERA_ICON}
-              </button>
-            </Tooltip>
-          )}
+          <Tooltip
+            label={
+              isAtMaxImages
+                ? 'Maximum 3 images attached'
+                : 'Screenshot temporarily disabled'
+            }
+          >
+            <button
+              type="button"
+              onClick={onScreenshot}
+              disabled
+              aria-label="Take screenshot"
+              className="window-no-drag shrink-0 w-7 h-7 flex items-center justify-center rounded-lg text-text-secondary transition-colors duration-150 disabled:opacity-35 disabled:cursor-not-allowed cursor-default"
+            >
+              {CAMERA_ICON}
+            </button>
+          </Tooltip>
 
           <motion.button
             type="button"

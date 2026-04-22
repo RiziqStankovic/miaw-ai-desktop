@@ -40,7 +40,7 @@ THUKI_API_KEY=
 THUKI_SUPPORTED_AI_MODELS=gemma-3-4b-it
 ```
 
-## Run
+## Run Dev
 
 ```bash
 npm install
@@ -53,3 +53,33 @@ If you prefer Bun:
 bun install
 bun run dev
 ```
+
+## Run Production Local
+
+Build the frontend first, then start Electron without the Vite dev server:
+
+```bash
+npm run build
+npm run start
+```
+
+## Build EXE
+
+Recommended output options:
+
+- Portable EXE:
+
+```bash
+npm run dist:portable
+```
+
+- Windows installer:
+
+```bash
+npm run dist:win
+```
+
+Both production build commands regenerate `icons/miaw.ico` from `public/miaw-logo.png`
+before packaging, so the EXE and installer branding stays in sync with the Miaw logo.
+
+Build artifacts will be written to `release/`.

@@ -79,6 +79,5 @@ export function invoke<T>(cmd: string, args?: Record<string, unknown>) {
 }
 
 export function convertFileSrc(filePath: string) {
-  const normalized = filePath.replace(/\\/g, '/');
-  return encodeURI(`file:///${normalized}`);
+  return `asset://localhost/${encodeURIComponent(filePath)}`;
 }
