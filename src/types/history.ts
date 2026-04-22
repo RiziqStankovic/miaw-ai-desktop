@@ -1,0 +1,74 @@
+/* v8 ignore file -- type-only declarations, no runtime code */
+
+/**
+ * TypeScript mirror of the Rust `ConversationSummary` struct in `database.rs`.
+ * Used for rendering conversation list items in the history panel.
+ */
+export interface ConversationSummary {
+  /** UUID primary key. */
+  id: string;
+  /** AI-generated or placeholder title. Null until a title is set. */
+  title: string | null;
+  /** Ollama model name used for this conversation. */
+  model: string;
+  /** Unix timestamp (milliseconds) of the last message. */
+  updated_at: number;
+  /** Total number of messages in this conversation. */
+  message_count: number;
+}
+
+/**
+ * TypeScript mirror of the Rust `PersistedMessage` struct in `database.rs`.
+ * Returned by `load_conversation` when restoring a saved session.
+ */
+export interface PersistedMessage {
+  /** UUID primary key. */
+  id: string;
+  /** `'user'` or `'assistant'`. */
+  role: string;
+  /** Full message content. */
+  content: string;
+  /** Quoted host-app text attached to this message, if any. */
+  quoted_text: string | null;
+  /** JSON-encoded array of image file paths, if any. */
+  image_paths: string | null;
+  /** Thinking/reasoning content from the model, if thinking mode was used. */
+  thinking_content: string | null;
+  /** JSON-encoded `SearchResultPreview[]` for assistant messages produced
+   *  through the `/search` pipeline. Null for other messages. */
+  search_sources: string | null;
+  /** JSON-encoded `SearchWarning[]` emitted during a `/search` turn.
+   *  Null for non-search messages or turns with no warnings. */
+  search_warnings: string | null;
+  /** JSON-encoded search metadata for this search turn.
+   *  Newer turns store `SearchMetadata`; older turns may still contain
+   *  `SearchTraceStep[]` or legacy iteration traces. Null for non-search
+   *  messages. */
+  search_metadata: string | null;
+  /** Unix timestamp (seconds) the message was created. */
+  created_at: number;
+}
+
+/**
+ * Response shape returned by the `save_conversation` Tauri command.
+ */
+export interface SaveConversationResponse {
+  conversation_id: string;
+}
+
+/**
+ * Message payload shape expected by the `save_conversation` and
+ * `generate_title` Tauri commands.
+ */
+export interface SaveMessagePayload {
+  role: string;
+  content: string;
+  quoted_text: string | null;
+  image_paths: string[] | null;
+  thinking_content: string | null;
+  search_sources: { title: string; url: string }[] | null;
+  /** Pre-serialized JSON string of `SearchWarning[]`, or null. */
+  search_warnings: string | null;
+  /** Pre-serialized JSON string of SearchMetadata or a legacy trace payload. */
+  search_metadata: string | null;
+}
