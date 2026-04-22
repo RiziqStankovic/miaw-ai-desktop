@@ -313,7 +313,7 @@ export function PermissionsStep() {
               src="/miaw-logo.png"
               width={72}
               height={72}
-              alt="Thuki"
+              alt="Miaw"
               style={{
                 width: '100%',
                 height: '100%',
@@ -338,7 +338,7 @@ export function PermissionsStep() {
             margin: '0 0 20px',
           }}
         >
-          {"Let's get Thuki set up"}
+          {"Let's get Miaw set up"}
         </h1>
 
         {/* Steps */}
@@ -381,7 +381,7 @@ export function PermissionsStep() {
                 Accessibility
               </div>
               <div style={{ fontSize: 12, color: '#6b6660', lineHeight: 1.5 }}>
-                Lets Thuki respond to activator key (<KeyChip label="⌃" />
+                Lets Miaw respond to activator key (<KeyChip label="⌃" />
                 <KeyChip label="⌃" />)
               </div>
             </div>
@@ -468,9 +468,9 @@ export function PermissionsStep() {
               <>
                 <CTAButton
                   onClick={handleQuitAndRelaunch}
-                  aria-label="Quit and Reopen Thuki"
+                  aria-label="Quit and Reopen Miaw"
                 >
-                  Quit & Reopen Thuki
+                  Quit & Reopen Miaw
                 </CTAButton>
                 <p
                   style={{

@@ -1,8 +1,9 @@
 {
-  "name": "thuki-windows",
+  "name": "miaw-windows",
   "version": "0.1.0",
   "private": true,
-  "description": "Windows-first Electron port of Thuki with a Tauri-compatible command surface",
+  "productName": "Miaw",
+  "description": "Windows-first Electron app for Miaw with a Tauri-compatible command surface",
   "type": "module",
   "main": "electron/main.mjs",
   "scripts": {

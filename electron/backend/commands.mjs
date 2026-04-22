@@ -11,7 +11,7 @@ const sqlWasmRoot = path.resolve(__dirname, '..', '..', 'node_modules', 'sql.js'
 const DEFAULT_MODEL_NAME = 'gemma-3-4b-it';
 const DEFAULT_API_BASE_URL = 'http://127.0.0.1:4000';
 const DEFAULT_SYSTEM_PROMPT =
-  'You are Thuki, a capable local AI secretary. Be direct, clear, and useful.';
+  'You are Miaw, a capable local AI secretary. Be direct, clear, and useful.';
 const LOCK_WINDOW_POSITION =
   process.env.THUKI_LOCK_WINDOW_POSITION?.trim() !== 'false';
 const PRESERVE_USER_WINDOW_WIDTH =
@@ -65,7 +65,7 @@ async function initializeDatabase(userDataPath) {
   });
 
   await ensureDir(userDataPath);
-  const dbPath = path.join(userDataPath, 'thuki.db');
+  const dbPath = path.join(userDataPath, 'miaw.db');
   const existing = await readIfExists(dbPath);
   const db = new SQL.Database(existing ? new Uint8Array(existing) : undefined);
 

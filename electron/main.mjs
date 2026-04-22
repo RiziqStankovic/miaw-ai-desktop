@@ -3,7 +3,15 @@ import 'dotenv/config';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { app, BrowserWindow, globalShortcut, ipcMain, nativeImage, Tray } from 'electron';
+import {
+  Menu,
+  app,
+  BrowserWindow,
+  globalShortcut,
+  ipcMain,
+  nativeImage,
+  Tray
+} from 'electron';
 
 import { createCommandHandlers, initializeBackend } from './backend/commands.mjs';
 
@@ -17,9 +25,57 @@ const openDevToolsOnStart =
 const lockWindowPosition = process.env.THUKI_LOCK_WINDOW_POSITION?.trim() !== 'false';
 const toggleShortcut =
   process.env.THUKI_TOGGLE_SHORTCUT?.trim() || 'CommandOrControl+Space';
+const newChatShortcut =
+  process.env.THUKI_NEW_CHAT_SHORTCUT?.trim() || 'CommandOrControl+Alt+Space';
+const quitShortcut =
+  process.env.THUKI_QUIT_SHORTCUT?.trim() || 'CommandOrControl+Shift+Q';
 
 let mainWindow = null;
 let tray = null;
+
+function quitApp() {
+  app.isQuiting = true;
+  app.quit();
+}
+
+function showWindow({ forceNewSession = false } = {}) {
+  if (!mainWindow) {
+    return;
+  }
+
+  if (mainWindow.isMinimized()) {
+    mainWindow.restore();
+  }
+
+  mainWindow.setOpacity(0);
+  mainWindow.show();
+  mainWindow.focus();
+
+  setTimeout(() => {
+    if (!mainWindow || mainWindow.isDestroyed()) {
+      return;
+    }
+
+    mainWindow.webContents.send('thuki:event', {
+      event: 'thuki://visibility',
+      payload: {
+        state: 'show',
+        selected_text: null,
+        window_x: null,
+        window_y: null,
+        screen_bottom_y: null,
+        force_new_session: forceNewSession
+      }
+    });
+
+    setTimeout(() => {
+      if (!mainWindow || mainWindow.isDestroyed()) {
+        return;
+      }
+      mainWindow.setOpacity(1);
+    }, 70);
+  }, 16);
+}
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -97,50 +153,57 @@ function toggleWindow() {
       payload: { state: 'hide-request' }
     });
   } else {
-    if (mainWindow.isMinimized()) {
-      mainWindow.restore();
-    }
-
-    // Show the native shell first, then replay the React entrance animation on
-    // the next frame so the renderer does not flash a stale captured frame.
-    mainWindow.setOpacity(0);
-    mainWindow.show();
-    mainWindow.focus();
-
-    setTimeout(() => {
-      if (!mainWindow || mainWindow.isDestroyed()) {
-        return;
-      }
-
-      mainWindow.webContents.send('thuki:event', {
-        event: 'thuki://visibility',
-        payload: {
-          state: 'show',
-          selected_text: null,
-          window_x: null,
-          window_y: null,
-          screen_bottom_y: null
-        }
-      });
-
-      setTimeout(() => {
-        if (!mainWindow || mainWindow.isDestroyed()) {
-          return;
-        }
-        mainWindow.setOpacity(1);
-      }, 70);
-    }, 16);
+    showWindow();
   }
 }
 
 function setupTray() {
   const image = nativeImage.createFromPath(iconPath);
   tray = new Tray(image);
-  tray.setToolTip('Thuki Windows');
+  tray.setToolTip('Miaw');
+  tray.setContextMenu(
+    Menu.buildFromTemplate([
+      {
+        label: 'Show',
+        click: () => {
+          if (!mainWindow) {
+            return;
+          }
+          if (!mainWindow.isVisible()) {
+            showWindow();
+          } else {
+            mainWindow.focus();
+          }
+        }
+      },
+      {
+        label: 'New Chat',
+        click: () => {
+          showWindow({ forceNewSession: true });
+        }
+      },
+      {
+        label: 'Hide',
+        click: () => {
+          if (mainWindow?.isVisible()) {
+            toggleWindow();
+          }
+        }
+      },
+      { type: 'separator' },
+      {
+        label: 'Quit',
+        click: () => {
+          quitApp();
+        }
+      }
+    ])
+  );
   tray.on('click', toggleWindow);
 }
 
 app.whenReady().then(async () => {
+  app.setName('Miaw');
   const backend = await initializeBackend({
     app,
     getWindow: () => mainWindow
@@ -164,6 +227,8 @@ app.whenReady().then(async () => {
   setupTray();
 
   globalShortcut.register(toggleShortcut, toggleWindow);
+  globalShortcut.register(newChatShortcut, () => showWindow({ forceNewSession: true }));
+  globalShortcut.register(quitShortcut, quitApp);
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {

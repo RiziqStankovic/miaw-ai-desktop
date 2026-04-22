@@ -1,6 +1,6 @@
-# Thuki Windows
+# Miaw Windows
 
-Electron-based Windows-first port of `thuki` that reuses the original React UI and preserves the original Tauri command names where possible.
+Electron-based Windows-first app for `Miaw` that reuses the current React UI and preserves the internal Tauri-compatible command surface where possible.
 
 ## What is implemented
 

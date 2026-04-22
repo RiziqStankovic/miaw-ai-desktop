@@ -583,7 +583,7 @@ export function AskBarView({
         <div className="flex items-center w-full px-3 py-2.5 gap-2">
           <img
             src="/miaw-logo.png"
-            alt="Thuki"
+            alt="Miaw"
             className={`shrink-0 object-cover object-center transition-all duration-300 ease-out ${
               isChatMode ? 'w-6 h-6 rounded-lg' : 'w-10 h-10 rounded-xl'
             }`}
@@ -623,7 +623,7 @@ export function AskBarView({
               disabled={isBusy}
               autoFocus
               rows={1}
-              placeholder={isChatMode ? 'Reply...' : 'Ask Thuki anything...'}
+              placeholder={isChatMode ? 'Reply...' : 'Ask Miaw anything...'}
               className="relative w-full bg-transparent border-none outline-none text-transparent text-sm placeholder:text-text-secondary py-2 px-1 disabled:opacity-50 resize-none leading-relaxed"
               style={{ caretColor: 'var(--color-text-primary)' }}
             />

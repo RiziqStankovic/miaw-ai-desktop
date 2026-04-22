@@ -85,6 +85,7 @@ type OverlayVisibilityPayload =
       window_x: number | null;
       window_y: number | null;
       screen_bottom_y: number | null;
+      force_new_session?: boolean;
     }
   | { state: 'hide-request' };
 type OverlayState = 'visible' | 'hidden' | 'hiding';
@@ -388,9 +389,12 @@ function App() {
       windowX: number | null,
       windowY: number | null,
       screenBottomY: number | null,
+      forceNewSession = false,
     ) => {
       const shouldPreserveSession =
-        context === null && sessionStateRef.current.hasActiveSession;
+        !forceNewSession &&
+        context === null &&
+        sessionStateRef.current.hasActiveSession;
       const shouldGrowUp =
         windowY !== null &&
         screenBottomY !== null &&
@@ -1311,6 +1315,7 @@ function App() {
               payload.window_x ?? null,
               payload.window_y ?? null,
               payload.screen_bottom_y ?? null,
+              payload.force_new_session ?? false,
             );
             return;
           }

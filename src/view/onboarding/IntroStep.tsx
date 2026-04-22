@@ -51,7 +51,7 @@ export function IntroStep({ onComplete }: Props) {
             src="/miaw-logo.png"
             width={52}
             height={52}
-            alt="Thuki"
+            alt="Miaw"
             style={{
               width: '100%',
               height: '100%',
