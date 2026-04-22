@@ -2,6 +2,11 @@
 
 Electron-based Windows-first app for `Miaw` that reuses the current React UI and preserves the internal Tauri-compatible command surface where possible.
 
+<img width="772" height="384" alt="image" src="https://github.com/user-attachments/assets/88f4f4ba-db1a-4095-8194-57be2dcf145f" />
+
+
+<img width="680" height="505" alt="image" src="https://github.com/user-attachments/assets/929a93ee-f30f-4346-8688-6b7193387529" />
+
 ## What is implemented
 
 - Reused `src/` UI from the original app
