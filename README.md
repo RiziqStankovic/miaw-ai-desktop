@@ -1,4 +1,4 @@
-# Miaw Windows
+# Miaw Windows Recreate from Thuki-macos
 
 Electron-based Windows-first app for `Miaw` that reuses the current React UI and preserves the internal Tauri-compatible command surface where possible.
 
