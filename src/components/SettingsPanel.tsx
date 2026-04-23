@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 
 export interface ProviderSettings {
@@ -25,6 +25,11 @@ interface SettingsPanelProps {
   onSaved: (settings: ProviderSettings) => void;
 }
 
+const PROVIDER_OPTIONS = [
+  { value: 'litellm', label: 'LiteLLM' },
+  { value: 'openai', label: 'OpenAI Compatible' },
+];
+
 function toEditableModelList(settings: ProviderSettings | null) {
   return settings?.models.all.join(', ') ?? '';
 }
@@ -39,6 +44,8 @@ export function SettingsPanel({ settings, onSaved }: SettingsPanelProps) {
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved'>('idle');
   const [pingState, setPingState] = useState<'idle' | 'testing'>('idle');
   const [pingResult, setPingResult] = useState<PingResult | null>(null);
+  const [isProviderOpen, setIsProviderOpen] = useState(false);
+  const providerMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!settings) {
@@ -54,6 +61,23 @@ export function SettingsPanel({ settings, onSaved }: SettingsPanelProps) {
     setSaveState('idle');
     setPingResult(null);
   }, [settings]);
+
+  useEffect(() => {
+    if (!isProviderOpen) {
+      return;
+    }
+
+    const handleMouseDown = (event: MouseEvent) => {
+      const target = event.target as Element;
+      if (providerMenuRef.current?.contains(target)) {
+        return;
+      }
+      setIsProviderOpen(false);
+    };
+
+    document.addEventListener('mousedown', handleMouseDown);
+    return () => document.removeEventListener('mousedown', handleMouseDown);
+  }, [isProviderOpen]);
 
   const normalizedPayload = useMemo(() => {
     const parsedModels = modelList
@@ -77,6 +101,9 @@ export function SettingsPanel({ settings, onSaved }: SettingsPanelProps) {
 
   const canSave =
     normalizedPayload.baseUrl.length > 0 && normalizedPayload.models.length > 0;
+  const selectedProviderLabel =
+    PROVIDER_OPTIONS.find((option) => option.value === provider)?.label ??
+    'LiteLLM';
 
   const handleSave = async () => {
     if (!canSave) {
@@ -105,8 +132,8 @@ export function SettingsPanel({ settings, onSaved }: SettingsPanelProps) {
   };
 
   return (
-    <div className="rounded-2xl border border-surface-border bg-[rgba(24,19,16,0.98)] shadow-chat backdrop-blur-2xl">
-      <div className="px-4 py-3 border-b border-surface-border">
+    <div className="settings-panel flex max-h-[calc(100vh-5rem)] flex-col overflow-hidden rounded-2xl border border-surface-border bg-[rgba(24,19,16,0.98)] shadow-chat backdrop-blur-2xl">
+      <div className="shrink-0 px-4 py-3 border-b border-surface-border">
         <div className="flex items-center justify-between gap-3">
           <div>
             <p className="text-sm font-semibold text-text-primary">Miaw Runtime Settings</p>
@@ -120,20 +147,66 @@ export function SettingsPanel({ settings, onSaved }: SettingsPanelProps) {
         </div>
       </div>
 
-      <div className="flex flex-col gap-3 px-4 py-4">
-        <label className="flex flex-col gap-1">
+      <div className="settings-panel-body flex min-h-0 flex-col gap-3 overflow-y-auto px-4 py-4">
+        <div className="relative flex flex-col gap-1" ref={providerMenuRef}>
           <span className="text-[11px] font-medium uppercase tracking-[0.12em] text-text-secondary">
             Provider
           </span>
-          <select
-            value={provider}
-            onChange={(event) => setProvider(event.target.value)}
-            className="rounded-xl border border-surface-border bg-white/4 px-3 py-2 text-sm text-text-primary outline-none"
+          <button
+            type="button"
+            aria-haspopup="listbox"
+            aria-expanded={isProviderOpen}
+            onClick={() => setIsProviderOpen((prev) => !prev)}
+            className="flex w-full items-center justify-between rounded-xl border border-surface-border bg-white/4 px-3 py-2 text-left text-sm text-text-primary outline-none transition-colors hover:border-primary/30 hover:bg-white/6 focus:border-primary/50"
           >
-            <option value="litellm">LiteLLM</option>
-            <option value="openai">OpenAI Compatible</option>
-          </select>
-        </label>
+            <span>{selectedProviderLabel}</span>
+            <svg
+              viewBox="0 0 20 20"
+              aria-hidden="true"
+              className={`h-4 w-4 text-text-primary/80 transition-transform ${
+                isProviderOpen ? 'rotate-180' : ''
+              }`}
+            >
+              <path
+                fill="currentColor"
+                d="M5.3 7.3a1 1 0 0 1 1.4 0L10 10.6l3.3-3.3a1 1 0 1 1 1.4 1.4l-4 4a1 1 0 0 1-1.4 0l-4-4a1 1 0 0 1 0-1.4Z"
+              />
+            </svg>
+          </button>
+
+          {isProviderOpen && (
+            <div
+              role="listbox"
+              className="absolute left-0 right-0 top-full z-[70] mt-2 overflow-hidden rounded-xl border border-primary/20 bg-[rgba(26,20,16,0.98)] p-1 shadow-chat backdrop-blur-xl"
+            >
+              {PROVIDER_OPTIONS.map((option) => {
+                const selected = provider === option.value;
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    role="option"
+                    aria-selected={selected}
+                    onClick={() => {
+                      setProvider(option.value);
+                      setIsProviderOpen(false);
+                    }}
+                    className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm transition-colors ${
+                      selected
+                        ? 'bg-primary/18 text-primary'
+                        : 'text-text-primary hover:bg-primary/10'
+                    }`}
+                  >
+                    <span>{option.label}</span>
+                    {selected && (
+                      <span className="h-1.5 w-1.5 rounded-full bg-primary" />
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
 
         <label className="flex flex-col gap-1">
           <span className="text-[11px] font-medium uppercase tracking-[0.12em] text-text-secondary">
@@ -160,7 +233,7 @@ export function SettingsPanel({ settings, onSaved }: SettingsPanelProps) {
           />
         </label>
 
-        <div className="grid grid-cols-[1fr_1.2fr] gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_1.2fr]">
           <label className="flex flex-col gap-1">
             <span className="text-[11px] font-medium uppercase tracking-[0.12em] text-text-secondary">
               Active Model

@@ -2,6 +2,9 @@ import { motion } from 'framer-motion';
 import type React from 'react';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+
+const MIAW_LOGO_URL = `${import.meta.env.BASE_URL}miaw-logo.png`;
+
 /** How often to poll for permission grants after the user requests them. */
 const POLL_INTERVAL_MS = 500;
 
@@ -310,7 +313,7 @@ export function PermissionsStep() {
             }}
           >
             <img
-              src="/miaw-logo.png"
+              src={MIAW_LOGO_URL}
               width={72}
               height={72}
               alt="Miaw"

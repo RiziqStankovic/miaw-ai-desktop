@@ -236,7 +236,7 @@ export function HistoryPanel({
   const isEmpty = conversations.length === 0 && !loadError;
 
   return (
-    <div className="history-panel flex flex-col w-full">
+    <div className="history-panel flex min-h-0 w-full flex-col">
       {/* Search input - hidden when showing any confirmation prompt */}
       {pendingId === null && !pendingNewConversation && (
         <div className="px-3 pt-3 pb-2 border-b border-surface-border">
@@ -266,7 +266,7 @@ export function HistoryPanel({
           onCancel={onCancelNew!}
         />
       ) : (
-        <div className="overflow-y-auto py-1 max-h-[280px]">
+        <div className="history-panel-list min-h-0 flex-1 overflow-y-auto py-1">
           {loadError && (
             <p className="px-3 py-4 text-xs text-text-secondary text-center">
               Couldn&apos;t load history - try again.

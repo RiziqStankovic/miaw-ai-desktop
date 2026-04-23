@@ -106,7 +106,7 @@ type OverlayState = 'visible' | 'hidden' | 'hiding';
  */
 function App() {
   const [query, setQuery] = useState('');
-  const [overlayState, setOverlayState] = useState<OverlayState>('hidden');
+  const [overlayState, setOverlayState] = useState<OverlayState>('visible');
   /** Non-null when the backend signals onboarding is needed; holds the current stage. */
   const [onboardingStage, setOnboardingStage] =
     useState<OnboardingStage | null>(null);
@@ -609,14 +609,16 @@ function App() {
       return;
     }
 
-    if (!isHistoryOpen) {
+    if (!isHistoryOpen && !isSettingsOpen) {
       container.style.transition =
         'min-height 0.25s cubic-bezier(0.16, 1, 0.3, 1)';
       container.style.minHeight = '';
       return;
     }
 
-    const dropdown = historyDropdownRef.current;
+    const dropdown = isHistoryOpen
+      ? historyDropdownRef.current
+      : settingsDropdownRef.current;
     if (!dropdown) return;
 
     container.style.transition =
@@ -632,7 +634,7 @@ function App() {
     ro.observe(dropdown);
     return () => ro.disconnect();
     /* v8 ignore stop */
-  }, [isChatMode, isHistoryOpen]);
+  }, [isChatMode, isHistoryOpen, isSettingsOpen]);
 
   /**
    * Toggles the save state of the current conversation.
@@ -1631,7 +1633,7 @@ function App() {
                           opacity: { duration: 0.2, delay: 0.08 },
                         }}
                         style={{ overflow: 'hidden' }}
-                        className="border-t border-surface-border p-3"
+                        className="ask-bar-settings border-t border-surface-border p-3"
                       >
                         <SettingsPanel
                           settings={providerSettings}
@@ -1691,7 +1693,7 @@ function App() {
                     animate={{ opacity: 1, y: 0, scale: 1 }}
                     exit={{ opacity: 0, y: -8, scale: 0.97 }}
                     transition={{ type: 'spring', stiffness: 400, damping: 30 }}
-                    className="history-dropdown absolute right-3 top-10 z-50 w-56 rounded-xl border border-surface-border bg-surface-base shadow-chat overflow-hidden flex flex-col"
+                    className="history-dropdown absolute right-3 top-10 z-50 flex w-56 flex-col overflow-hidden rounded-xl border border-surface-border bg-surface-base shadow-chat"
                   >
                     <HistoryPanel
                       listConversations={listConversations}
@@ -1719,7 +1721,7 @@ function App() {
                     animate={{ opacity: 1, y: 0, scale: 1 }}
                     exit={{ opacity: 0, y: -8, scale: 0.97 }}
                     transition={{ type: 'spring', stiffness: 400, damping: 30 }}
-                    className="absolute right-3 top-10 z-50 w-[min(28rem,calc(100%-1.5rem))]"
+                    className="settings-dropdown absolute right-3 top-10 z-50 w-[min(28rem,calc(100%-1.5rem))]"
                   >
                     <SettingsPanel
                       settings={providerSettings}

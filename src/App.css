@@ -140,6 +140,32 @@ body {
   background: transparent;
 }
 
+.history-dropdown,
+.settings-dropdown {
+  max-height: calc(100vh - 5rem);
+}
+
+.history-panel {
+  max-height: inherit;
+}
+
+.history-panel-list {
+  max-height: min(280px, calc(100vh - 8rem));
+  scrollbar-gutter: stable;
+}
+
+.history-dropdown .history-panel-list {
+  max-height: none;
+}
+
+.settings-panel-body {
+  scrollbar-gutter: stable;
+}
+
+.ask-bar-settings .settings-panel {
+  max-height: 420px;
+}
+
 /* ─── Morphing Container ─── */
 .morphing-container {
   will-change: transform;

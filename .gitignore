@@ -26,3 +26,5 @@ out/
 release/
 
 *.tsbuildinfo
+
+package-lock.json

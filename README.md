@@ -2,8 +2,13 @@
 
 Electron-based Windows-first app for `Miaw` that reuses the current React UI and preserves the internal Tauri-compatible command surface where possible.
 
-<img width="772" height="384" alt="image" src="https://github.com/user-attachments/assets/88f4f4ba-db1a-4095-8194-57be2dcf145f" />
 
+<img width="670" height="689" alt="image" src="https://github.com/user-attachments/assets/7bcb28d5-59fa-4025-a439-5a9e135c585b" />
+
+
+support model local 
+
+<img width="550" height="616" alt="image" src="https://github.com/user-attachments/assets/1124f105-09d2-4776-8e67-f535c9b3c589" />
 
 
 
@@ -31,6 +36,11 @@ Electron-based Windows-first app for `Miaw` that reuses the current React UI and
 - Search is stubbed to `SandboxUnavailable` so the existing UI renders the setup card
 - macOS-only permission/onboarding commands return safe Windows defaults
 - Drag-to-move is not fully native yet; window movement is still a follow-up task
+
+
+
+<img width="772" height="384" alt="image" src="https://github.com/user-attachments/assets/88f4f4ba-db1a-4095-8194-57be2dcf145f" />
+
 
 ## Environment
 

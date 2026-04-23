@@ -13,6 +13,7 @@ const rootDir = path.dirname(fileURLToPath(import.meta.url));
  * Tauri client modules it imports to local Electron shims.
  */
 export default defineConfig(async () => ({
+  base: './',
   plugins: [tailwindcss(), react()],
   clearScreen: false,
   resolve: {

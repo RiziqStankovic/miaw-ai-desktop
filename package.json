@@ -45,9 +45,13 @@
     "copyright": "Copyright (c) 2026 Cloudfren",
     "artifactName": "Miaw-${version}-${arch}.${ext}",
     "asar": true,
+    "toolsets": {
+      "winCodeSign": "1.1.0"
+    },
     "directories": {
       "output": "release"
     },
+    "afterPack": "scripts/apply-windows-icon.mjs",
     "files": [
       "dist/**",
       "electron/**",
@@ -59,7 +63,7 @@
       "main": "electron/main.mjs"
     },
     "win": {
-      "publisherName": "Cloudfren",
+      "signAndEditExecutable": false,
       "target": [
         "portable",
         "nsis"

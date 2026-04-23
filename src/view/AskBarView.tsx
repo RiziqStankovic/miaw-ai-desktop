@@ -10,6 +10,8 @@ import type { AttachedImage } from '../types/image';
 import { MAX_IMAGE_SIZE_BYTES } from '../types/image';
 import { COMMANDS } from '../config/commands';
 
+const MIAW_LOGO_URL = `${import.meta.env.BASE_URL}miaw-logo.png`;
+
 /**
  * Hoisted static SVG - prevents re-allocation on every render cycle.
  * @see Vercel React Best Practices §6.3 - Hoist Static JSX Elements
@@ -616,7 +618,7 @@ export function AskBarView({
             }`}
           >
             <img
-              src="/miaw-logo.png"
+              src={MIAW_LOGO_URL}
               alt="Miaw"
               className="w-full h-full object-cover object-center scale-[1.26]"
               draggable={false}
