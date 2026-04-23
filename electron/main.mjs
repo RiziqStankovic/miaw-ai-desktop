@@ -1,5 +1,6 @@
 import 'dotenv/config';
 
+import fs from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -25,7 +26,7 @@ const iconPath = path.join(projectRoot, 'public', 'miaw-logo.png');
 const enableDevTools = process.env.THUKI_ENABLE_DEVTOOLS?.trim() === 'true';
 const openDevToolsOnStart =
   process.env.THUKI_OPEN_DEVTOOLS_ON_START?.trim() === 'true';
-const lockWindowPosition = process.env.THUKI_LOCK_WINDOW_POSITION?.trim() !== 'false';
+const lockWindowPosition = process.env.THUKI_LOCK_WINDOW_POSITION?.trim() === 'true';
 const toggleShortcut =
   process.env.THUKI_TOGGLE_SHORTCUT?.trim() || 'CommandOrControl+Space';
 const newChatShortcut =
@@ -35,6 +36,37 @@ const quitShortcut =
 
 let mainWindow = null;
 let tray = null;
+let logFilePath = null;
+
+function formatError(error) {
+  if (error instanceof Error) {
+    return error.stack || error.message;
+  }
+  return String(error);
+}
+
+function log(message, details) {
+  const line = `[${new Date().toISOString()}] ${message}${
+    details === undefined ? '' : ` ${formatError(details)}`
+  }\n`;
+  console.log(line.trimEnd());
+  if (!logFilePath) {
+    return;
+  }
+  try {
+    fs.appendFileSync(logFilePath, line);
+  } catch {
+    // Logging must never crash the app.
+  }
+}
+
+process.on('uncaughtException', (error) => {
+  log('uncaughtException', error);
+});
+
+process.on('unhandledRejection', (reason) => {
+  log('unhandledRejection', reason);
+});
 
 function quitApp() {
   app.isQuiting = true;
@@ -81,6 +113,10 @@ function showWindow({ forceNewSession = false } = {}) {
 }
 
 function createWindow() {
+  const preloadPath = path.join(projectRoot, 'electron', 'preload.mjs');
+  const indexPath = path.join(projectRoot, 'dist', 'index.html');
+  log('createWindow', `projectRoot=${projectRoot} preload=${preloadPath} index=${indexPath}`);
+
   mainWindow = new BrowserWindow({
     width: 600,
     height: 700,
@@ -93,11 +129,27 @@ function createWindow() {
     icon: iconPath,
     paintWhenInitiallyHidden: true,
     webPreferences: {
-      preload: path.join(projectRoot, 'electron', 'preload.mjs'),
+      preload: preloadPath,
       contextIsolation: true,
       sandbox: false,
       devTools: enableDevTools
     }
+  });
+
+  mainWindow.webContents.on('preload-error', (_event, preloadPath, error) => {
+    log(`preload-error ${preloadPath}`, error);
+  });
+
+  mainWindow.webContents.on('did-fail-load', (_event, code, description, url) => {
+    log('did-fail-load', `code=${code} description=${description} url=${url}`);
+  });
+
+  mainWindow.webContents.on('render-process-gone', (_event, details) => {
+    log('render-process-gone', JSON.stringify(details));
+  });
+
+  mainWindow.webContents.on('console-message', (_event, level, message, line, sourceId) => {
+    log('renderer-console', `level=${level} ${sourceId}:${line} ${message}`);
   });
 
   if (lockWindowPosition) {
@@ -124,11 +176,14 @@ function createWindow() {
       mainWindow.webContents.openDevTools({ mode: 'detach' });
     }
   } else {
-    void mainWindow.loadFile(path.join(projectRoot, 'dist', 'index.html'));
+    void mainWindow.loadFile(indexPath).catch((error) => {
+      log('loadFile failed', error);
+    });
   }
 
   mainWindow.once('ready-to-show', () => {
-    mainWindow?.show();
+    log('ready-to-show');
+    showWindow();
   });
 
   mainWindow.on('close', (event) => {
@@ -169,14 +224,7 @@ function setupTray() {
       {
         label: 'Show',
         click: () => {
-          if (!mainWindow) {
-            return;
-          }
-          if (!mainWindow.isVisible()) {
-            showWindow();
-          } else {
-            mainWindow.focus();
-          }
+          showWindow();
         }
       },
       {
@@ -207,6 +255,8 @@ function setupTray() {
 
 app.whenReady().then(async () => {
   app.setName('Miaw');
+  logFilePath = path.join(app.getPath('userData'), 'miaw.log');
+  log('app-ready', `packaged=${app.isPackaged} version=${app.getVersion()}`);
   protocol.handle('asset', (request) => {
     const url = new URL(request.url);
     const encodedPath = url.pathname.startsWith('/')
@@ -219,6 +269,9 @@ app.whenReady().then(async () => {
   const backend = await initializeBackend({
     app,
     getWindow: () => mainWindow
+  }).catch((error) => {
+    log('initializeBackend failed', error);
+    throw error;
   });
 
   const handlers = createCommandHandlers({
@@ -232,7 +285,12 @@ app.whenReady().then(async () => {
     if (!handler) {
       throw new Error(`Unknown command: ${cmd}`);
     }
-    return handler(args ?? {});
+    try {
+      return await handler(args ?? {});
+    } catch (error) {
+      log(`ipc handler failed cmd=${cmd}`, error);
+      throw error;
+    }
   });
 
   createWindow();
@@ -246,7 +304,7 @@ app.whenReady().then(async () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       createWindow();
     } else {
-      mainWindow?.show();
+      showWindow();
     }
   });
 });

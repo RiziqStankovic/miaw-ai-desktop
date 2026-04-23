@@ -106,7 +106,7 @@ type OverlayState = 'visible' | 'hidden' | 'hiding';
  */
 function App() {
   const [query, setQuery] = useState('');
-  const [overlayState, setOverlayState] = useState<OverlayState>('hidden');
+  const [overlayState, setOverlayState] = useState<OverlayState>('visible');
   /** Non-null when the backend signals onboarding is needed; holds the current stage. */
   const [onboardingStage, setOnboardingStage] =
     useState<OnboardingStage | null>(null);

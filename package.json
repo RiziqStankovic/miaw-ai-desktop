@@ -51,6 +51,7 @@
     "directories": {
       "output": "release"
     },
+    "afterPack": "scripts/apply-windows-icon.mjs",
     "files": [
       "dist/**",
       "electron/**",

@@ -4,6 +4,8 @@ interface Props {
   onComplete: () => void;
 }
 
+const MIAW_LOGO_URL = `${import.meta.env.BASE_URL}miaw-logo.png`;
+
 export function IntroStep({ onComplete }: Props) {
   const handleGetStarted = async () => {
     await invoke('finish_onboarding');
@@ -48,7 +50,7 @@ export function IntroStep({ onComplete }: Props) {
           }}
         >
           <img
-            src="/miaw-logo.png"
+            src={MIAW_LOGO_URL}
             width={52}
             height={52}
             alt="Miaw"
