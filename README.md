@@ -11,6 +11,7 @@ support model local
 <img width="550" height="616" alt="image" src="https://github.com/user-attachments/assets/1124f105-09d2-4776-8e67-f535c9b3c589" />
 
 
+
 ## What is implemented
 
 - Reused `src/` UI from the original app
@@ -35,6 +36,11 @@ support model local
 - Search is stubbed to `SandboxUnavailable` so the existing UI renders the setup card
 - macOS-only permission/onboarding commands return safe Windows defaults
 - Drag-to-move is not fully native yet; window movement is still a follow-up task
+
+
+
+<img width="772" height="384" alt="image" src="https://github.com/user-attachments/assets/88f4f4ba-db1a-4095-8194-57be2dcf145f" />
+
 
 ## Environment
 
@@ -71,6 +77,9 @@ Build the frontend first, then start Electron without the Vite dev server:
 npm run build
 npm run start
 ```
+
+
+<img width="680" height="505" alt="image" src="https://github.com/user-attachments/assets/929a93ee-f30f-4346-8688-6b7193387529" />
 
 ## Build EXE
 
