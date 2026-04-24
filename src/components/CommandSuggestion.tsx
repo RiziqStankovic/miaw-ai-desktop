@@ -312,6 +312,8 @@ interface CommandSuggestionProps {
   highlightedIndex: number;
   /** Called with the trigger string when a row is clicked. */
   onSelect: (trigger: string) => void;
+  /** Shows onboarding tips for slash mode when the user typed just "/". */
+  showGuide?: boolean;
 }
 
 /**
@@ -325,6 +327,7 @@ export function CommandSuggestion({
   commands,
   highlightedIndex,
   onSelect,
+  showGuide = false,
 }: CommandSuggestionProps) {
   const optionElementsRef = useRef<Array<HTMLLIElement | null>>([]);
 
@@ -341,6 +344,37 @@ export function CommandSuggestion({
       role="listbox"
       aria-label="Command suggestions"
     >
+      {showGuide ? (
+        <div className="border-b border-surface-border px-3 pt-3 pb-2">
+          <p className="text-sm font-semibold text-text-primary">
+            Miaw helps you chat, launch apps, and move faster locally.
+          </p>
+          <p className="mt-1 text-[11px] text-text-secondary">
+            Simple local assistant by{' '}
+            <span className="text-text-primary">riziqstankovic</span>
+          </p>
+          <div className="mt-3 rounded-lg border border-surface-border bg-white/4 px-3 py-2">
+            <p className="text-[10px] font-semibold tracking-wide text-text-secondary uppercase">
+            Quick Guide
+            </p>
+            <div className="mt-1.5 space-y-1 text-xs text-text-secondary">
+              <p>
+                Type <span className="text-text-primary">/chrome</span> to open
+                an app quickly.
+              </p>
+              <p>
+                Press <span className="text-text-primary">Ctrl + Space</span>{' '}
+                to show or hide Miaw.
+              </p>
+              <p>
+                Type <span className="text-text-primary">5+5</span> to calculate
+                instantly.
+              </p>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {/* Header */}
       <div className="px-3 pt-2 pb-1">
         <span className="text-[10px] font-semibold tracking-widest text-text-secondary uppercase">

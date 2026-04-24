@@ -16,6 +16,13 @@ const LOCK_WINDOW_POSITION =
   process.env.THUKI_LOCK_WINDOW_POSITION?.trim() !== 'false';
 const PRESERVE_USER_WINDOW_WIDTH =
   process.env.THUKI_PRESERVE_USER_WINDOW_WIDTH?.trim() !== 'false';
+const SCREEN_CAPTURE_FADE_STEP_MS = 16;
+const SCREEN_CAPTURE_FADE_STEPS = 8;
+const SCREEN_CAPTURE_SETTLE_DELAY_MS = 60;
+const START_MENU_INDEX_MAX_DEPTH = 6;
+const START_MENU_INDEX_MAX_ENTRIES = 2500;
+const LOCAL_FILE_INDEX_MAX_DEPTH = 4;
+const LOCAL_FILE_INDEX_MAX_ENTRIES = 1800;
 
 function nowMillis() {
   return Date.now();
@@ -100,6 +107,15 @@ async function readIfExists(filePath) {
   }
 }
 
+async function readJsonIfExists(filePath, fallback) {
+  try {
+    const raw = await fs.readFile(filePath, 'utf8');
+    return JSON.parse(raw);
+  } catch {
+    return fallback;
+  }
+}
+
 async function initializeDatabase(userDataPath) {
   const SQL = await initSqlJs({
     locateFile: (file) => path.join(sqlWasmRoot, file)
@@ -147,6 +163,312 @@ async function initializeDatabase(userDataPath) {
 
 function randomId() {
   return crypto.randomUUID();
+}
+
+function delay(ms) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+function normalizeSearchText(value) {
+  return String(value ?? '')
+    .toLowerCase()
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function queryTokens(query) {
+  return normalizeSearchText(query)
+    .split(' ')
+    .map((token) => token.trim())
+    .filter(Boolean);
+}
+
+function scoreSearchMatch(query, primaryText, secondaryText = '') {
+  const normalizedQuery = normalizeSearchText(query);
+  if (!normalizedQuery) {
+    return Number.NEGATIVE_INFINITY;
+  }
+
+  const primary = normalizeSearchText(primaryText);
+  const secondary = normalizeSearchText(secondaryText);
+  const combined = `${primary} ${secondary}`.trim();
+  const tokens = queryTokens(normalizedQuery);
+
+  let score = 0;
+  if (primary === normalizedQuery) score += 120;
+  if (combined === normalizedQuery) score += 90;
+  if (primary.startsWith(normalizedQuery)) score += 48;
+  if (combined.startsWith(normalizedQuery)) score += 28;
+  if (primary.includes(normalizedQuery)) score += 18;
+  if (combined.includes(normalizedQuery)) score += 10;
+
+  let matchedTokens = 0;
+  for (const token of tokens) {
+    if (primary.startsWith(token)) {
+      score += 16;
+      matchedTokens += 1;
+      continue;
+    }
+    if (primary.includes(token)) {
+      score += 10;
+      matchedTokens += 1;
+      continue;
+    }
+    if (secondary.startsWith(token)) {
+      score += 7;
+      matchedTokens += 1;
+      continue;
+    }
+    if (secondary.includes(token)) {
+      score += 4;
+      matchedTokens += 1;
+      continue;
+    }
+  }
+
+  if (matchedTokens === 0) {
+    return Number.NEGATIVE_INFINITY;
+  }
+
+  if (matchedTokens === tokens.length) {
+    score += 24;
+  }
+
+  return score;
+}
+
+async function walkDirectory(rootDir, options = {}) {
+  const maxDepth = Number(options.maxDepth ?? 4);
+  const maxEntries = Number(options.maxEntries ?? 1500);
+  const results = [];
+  const queue = [{ dir: rootDir, depth: 0 }];
+
+  while (queue.length > 0 && results.length < maxEntries) {
+    const current = queue.shift();
+    const currentDir = current.dir;
+    let entries = [];
+
+    try {
+      entries = await fs.readdir(currentDir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+
+    for (const entry of entries) {
+      const fullPath = path.join(currentDir, entry.name);
+      if (entry.isDirectory()) {
+        results.push({
+          path: fullPath,
+          isDirectory: true
+        });
+        if (current.depth < maxDepth) {
+          queue.push({
+            dir: fullPath,
+            depth: current.depth + 1
+          });
+        }
+        continue;
+      }
+      results.push({
+        path: fullPath,
+        isDirectory: false
+      });
+      if (results.length >= maxEntries) {
+        break;
+      }
+    }
+  }
+
+  return results;
+}
+
+function displayNameFromPath(filePath) {
+  return path.basename(filePath, path.extname(filePath)).replace(/\s+/g, ' ').trim();
+}
+
+async function indexWindowsApps(app) {
+  const startMenuDirs = [
+    path.join(app.getPath('appData'), 'Microsoft', 'Windows', 'Start Menu', 'Programs'),
+    path.join(process.env.ProgramData ?? 'C:\\ProgramData', 'Microsoft', 'Windows', 'Start Menu', 'Programs')
+  ];
+
+  const files = [];
+  for (const dir of startMenuDirs) {
+    files.push(
+      ...(await walkDirectory(dir, {
+        maxDepth: START_MENU_INDEX_MAX_DEPTH,
+        maxEntries: START_MENU_INDEX_MAX_ENTRIES
+      }))
+    );
+  }
+
+  const deduped = new Map();
+  for (const entryMeta of files) {
+    if (entryMeta.isDirectory) {
+      continue;
+    }
+    const filePath = entryMeta.path;
+    const extension = path.extname(filePath).toLowerCase();
+    if (!['.lnk', '.url', '.exe'].includes(extension)) {
+      continue;
+    }
+
+    const title = displayNameFromPath(filePath);
+    if (!title) {
+      continue;
+    }
+
+    const dedupeKey = `${normalizeSearchText(title)}::${filePath.toLowerCase()}`;
+    if (deduped.has(dedupeKey)) {
+      continue;
+    }
+
+    deduped.set(dedupeKey, {
+      id: randomId(),
+      title,
+      subtitle:
+        extension === '.exe'
+          ? 'Executable'
+          : extension === '.url'
+            ? 'Internet shortcut'
+            : 'Application',
+      path: filePath,
+      searchText: `${normalizeSearchText(title)} ${normalizeSearchText(filePath)}`
+    });
+  }
+
+  return [...deduped.values()].sort((a, b) => a.title.localeCompare(b.title));
+}
+
+async function getWindowsAppIndex(app, backend) {
+  const now = nowMillis();
+  const cache = backend.launcherAppIndex;
+  if (cache.entries.length > 0 && now - cache.indexedAt < 5 * 60 * 1000) {
+    return cache.entries;
+  }
+
+  const entries = await indexWindowsApps(app);
+  backend.launcherAppIndex = {
+    indexedAt: now,
+    entries
+  };
+  await persistLauncherIndexCache(backend);
+  return entries;
+}
+
+async function indexLauncherFiles(app) {
+  const homeDir = app.getPath('home');
+  const candidateDirs = [
+    path.join(homeDir, 'Desktop'),
+    path.join(homeDir, 'Documents'),
+    path.join(homeDir, 'Downloads')
+  ];
+
+  const files = [];
+  for (const dir of candidateDirs) {
+    files.push(
+      ...(await walkDirectory(dir, {
+        maxDepth: LOCAL_FILE_INDEX_MAX_DEPTH,
+        maxEntries: LOCAL_FILE_INDEX_MAX_ENTRIES
+      }))
+    );
+  }
+
+  const deduped = new Map();
+  for (const entryMeta of files) {
+    const filePath = entryMeta.path;
+    const title = path.basename(filePath);
+    if (!title) {
+      continue;
+    }
+
+    const parentLabel = path.basename(path.dirname(filePath)) || 'Local';
+    const dedupeKey = filePath.toLowerCase();
+    if (deduped.has(dedupeKey)) {
+      continue;
+    }
+
+    deduped.set(dedupeKey, {
+      id: randomId(),
+      title,
+      subtitle: parentLabel,
+      path: filePath,
+      isDirectory: entryMeta.isDirectory,
+      searchText: `${normalizeSearchText(title)} ${normalizeSearchText(filePath)} ${normalizeSearchText(parentLabel)}`
+    });
+  }
+
+  return [...deduped.values()].sort((a, b) => a.title.localeCompare(b.title));
+}
+
+async function getLauncherFileIndex(app, backend) {
+  const now = nowMillis();
+  const cache = backend.launcherFileIndex;
+  if (cache.entries.length > 0 && now - cache.indexedAt < 60 * 1000) {
+    return cache.entries;
+  }
+
+  const entries = await indexLauncherFiles(app);
+  backend.launcherFileIndex = {
+    indexedAt: now,
+    entries
+  };
+  await persistLauncherIndexCache(backend);
+  return entries;
+}
+
+function sanitizeLauncherCache(cache) {
+  const safeEntries = Array.isArray(cache?.entries) ? cache.entries : [];
+  const indexedAt = Number(cache?.indexedAt ?? 0);
+  return {
+    indexedAt: Number.isFinite(indexedAt) ? indexedAt : 0,
+    entries: safeEntries
+  };
+}
+
+async function loadLauncherIndexCache(userDataPath) {
+  const filePath = path.join(userDataPath, 'launcher-index-cache.json');
+  const parsed = await readJsonIfExists(filePath, null);
+  return {
+    filePath,
+    appIndex: sanitizeLauncherCache(parsed?.appIndex),
+    fileIndex: sanitizeLauncherCache(parsed?.fileIndex)
+  };
+}
+
+async function persistLauncherIndexCache(backend) {
+  if (!backend.launcherCacheFilePath) {
+    return;
+  }
+
+  await fs.writeFile(
+    backend.launcherCacheFilePath,
+    JSON.stringify(
+      {
+        appIndex: backend.launcherAppIndex,
+        fileIndex: backend.launcherFileIndex
+      },
+      null,
+      2
+    ),
+    'utf8'
+  );
+}
+
+async function animateWindowOpacity(window, from, to) {
+  for (let step = 1; step <= SCREEN_CAPTURE_FADE_STEPS; step += 1) {
+    if (!window || window.isDestroyed()) {
+      return;
+    }
+
+    const progress = step / SCREEN_CAPTURE_FADE_STEPS;
+    const eased = 1 - Math.pow(1 - progress, 3);
+    window.setOpacity(from + (to - from) * eased);
+    await delay(SCREEN_CAPTURE_FADE_STEP_MS);
+  }
 }
 
 function channelId(value) {
@@ -347,6 +669,34 @@ async function capturePrimaryScreenPng() {
   return source.thumbnail.toPNG();
 }
 
+async function capturePrimaryScreenPngWithoutWindow(window) {
+  const shouldRestore =
+    window && !window.isDestroyed() && window.isVisible() && !window.isMinimized();
+
+  if (!shouldRestore) {
+    return capturePrimaryScreenPng();
+  }
+
+  const originalOpacity = window.getOpacity();
+  await animateWindowOpacity(window, originalOpacity, 0);
+  window.hide();
+  await delay(SCREEN_CAPTURE_SETTLE_DELAY_MS);
+
+  try {
+    return await capturePrimaryScreenPng();
+  } finally {
+    if (!window.isDestroyed()) {
+      window.setOpacity(0);
+      window.show();
+      window.focus();
+      await animateWindowOpacity(window, 0, originalOpacity);
+      if (!window.isDestroyed()) {
+        window.setOpacity(originalOpacity);
+      }
+    }
+  }
+}
+
 async function createImageStore(userDataPath) {
   const imagesDir = path.join(userDataPath, 'images');
   await ensureDir(imagesDir);
@@ -388,6 +738,7 @@ export async function initializeBackend({ app }) {
   const userDataPath = app.getPath('userData');
   const database = await initializeDatabase(userDataPath);
   const images = await createImageStore(userDataPath);
+  const launcherCache = await loadLauncherIndexCache(userDataPath);
 
   return {
     config: normalizeProviderSettings(providerConfig()),
@@ -395,7 +746,16 @@ export async function initializeBackend({ app }) {
     images,
     inMemoryConversation: [],
     activeGeneration: null,
-    launchShown: false
+    launchShown: false,
+    launcherCacheFilePath: launcherCache.filePath,
+    launcherAppIndex: {
+      indexedAt: launcherCache.appIndex.indexedAt,
+      entries: launcherCache.appIndex.entries
+    },
+    launcherFileIndex: {
+      indexedAt: launcherCache.fileIndex.indexedAt,
+      entries: launcherCache.fileIndex.entries
+    }
   };
 }
 
@@ -637,6 +997,74 @@ export function createCommandHandlers({ app, backend, getWindow }) {
       }
       await shell.openExternal(url);
     },
+    open_path: async ({ path: targetPath }) => {
+      const error = await shell.openPath(String(targetPath ?? ''));
+      if (error) {
+        throw new Error(error);
+      }
+    },
+    open_containing_folder: async ({ path: targetPath, isDirectory }) => {
+      const resolvedPath = String(targetPath ?? '');
+      if (isDirectory) {
+        const error = await shell.openPath(resolvedPath);
+        if (error) {
+          throw new Error(error);
+        }
+        return;
+      }
+      shell.showItemInFolder(resolvedPath);
+    },
+    search_launcher_apps: async ({ query, limit }) => {
+      if (!normalizeSearchText(query)) {
+        return [];
+      }
+
+      const entries = await getWindowsAppIndex(app, backend);
+      const maxResults = Math.max(1, Number(limit ?? 5));
+
+      const ranked = entries
+        .map((entry) => {
+          const score = scoreSearchMatch(query, entry.title, `${entry.subtitle} ${entry.path}`);
+          return { entry, score };
+        })
+        .filter((item) => Number.isFinite(item.score))
+        .sort((a, b) => b.score - a.score || a.entry.title.localeCompare(b.entry.title))
+        .slice(0, maxResults);
+
+      return ranked.map(({ entry }) => ({
+          id: entry.id,
+          title: entry.title,
+          subtitle: entry.subtitle,
+          path: entry.path
+        }));
+    },
+    search_launcher_files: async ({ query, limit }) => {
+      if (!normalizeSearchText(query)) {
+        return [];
+      }
+
+      const entries = await getLauncherFileIndex(app, backend);
+      const maxResults = Math.max(1, Number(limit ?? 5));
+
+      return entries
+        .map((entry) => {
+          const score = scoreSearchMatch(query, entry.title, `${entry.subtitle} ${entry.path}`);
+          return {
+            entry,
+            score
+          };
+        })
+        .filter((item) => Number.isFinite(item.score))
+        .sort((a, b) => b.score - a.score || a.entry.title.localeCompare(b.entry.title))
+        .slice(0, maxResults)
+        .map(({ entry }) => ({
+          id: entry.id,
+          title: entry.title,
+          subtitle: entry.subtitle,
+          path: entry.path,
+          isDirectory: entry.isDirectory
+        }));
+    },
     reset_conversation: async () => {
       backend.inMemoryConversation = [];
     },
@@ -869,11 +1297,11 @@ export function createCommandHandlers({ app, backend, getWindow }) {
       return backend.images.cleanupOrphans(referencedPaths ?? []);
     },
     capture_screenshot_command: async () => {
-      const png = await capturePrimaryScreenPng();
+      const png = await capturePrimaryScreenPngWithoutWindow(getWindow());
       return Buffer.from(png).toString('base64');
     },
     capture_full_screen_command: async () => {
-      const png = await capturePrimaryScreenPng();
+      const png = await capturePrimaryScreenPngWithoutWindow(getWindow());
       return backend.images.saveImageBuffer(png, '.png');
     },
     search_pipeline: async ({ onEvent }) => {

@@ -5,10 +5,13 @@ import { formatQuotedText } from '../utils/formatQuote';
 import { quote } from '../config';
 import { ImageThumbnails } from '../components/ImageThumbnails';
 import { CommandSuggestion } from '../components/CommandSuggestion';
+import { LauncherResults } from '../components/LauncherResults';
 import { Tooltip } from '../components/Tooltip';
 import type { AttachedImage } from '../types/image';
 import { MAX_IMAGE_SIZE_BYTES } from '../types/image';
 import { COMMANDS } from '../config/commands';
+import type { LauncherItem, LauncherSection } from '../config/launcher';
+import type { LauncherItemAction } from '../config/launcher';
 
 const MIAW_LOGO_URL = `${import.meta.env.BASE_URL}miaw-logo.png`;
 
@@ -261,6 +264,12 @@ interface AskBarViewProps {
   onImagePreview: (id: string) => void;
   /** Called when the user clicks the screenshot capture button. */
   onScreenshot: () => void;
+  /** Launcher results shown in ask-bar mode when not using slash autocomplete. */
+  launcherSections?: readonly LauncherSection[];
+  /** Called when the user activates the highlighted launcher result. */
+  onLauncherSelect?: (item: LauncherItem) => void;
+  /** Called when the user activates a secondary launcher action icon. */
+  onLauncherAction?: (item: LauncherItem, action: LauncherItemAction) => void;
   /**
    * Drag state passed down from the root window handler.
    * "normal" = violet ring; "max" = red ring + label; undefined = no ring.
@@ -291,6 +300,9 @@ export function AskBarView({
   onImageRemove,
   onImagePreview,
   onScreenshot,
+  launcherSections = [],
+  onLauncherSelect,
+  onLauncherAction,
   isDragOver,
 }: AskBarViewProps) {
   /** Ref to the mirror div behind the textarea for command highlighting. */
@@ -301,6 +313,7 @@ export function AskBarView({
   const canSubmit =
     (query.trim().length > 0 || attachedImages.length > 0) && !isBusy;
   const isAtMaxImages = attachedImages.length >= MAX_IMAGES;
+  const isScreenshotDisabled = isBusy || isAtMaxImages;
 
   /** True briefly after a paste attempt is rejected because max images reached. */
   const [pasteMaxError, setPasteMaxError] = useState(false);
@@ -339,8 +352,18 @@ export function AskBarView({
     return match ? match[1] : '';
   }, [rawQuery]);
 
+  const hasCommandMatches = useMemo(
+    () =>
+      lastSlashWord.length > 0 &&
+      COMMANDS.some((cmd) => cmd.trigger.startsWith(lastSlashWord)),
+    [lastSlashWord],
+  );
+
   const showSuggestions =
-    !isBusy && lastSlashWord.length > 0 && lastSlashWord !== dismissedQuery;
+    !isBusy &&
+    lastSlashWord.length > 0 &&
+    hasCommandMatches &&
+    lastSlashWord !== dismissedQuery;
 
   /** The active command prefix (e.g. "/sc"). Empty when not suggesting. */
   const commandPrefix = showSuggestions ? lastSlashWord : '';
@@ -376,6 +399,13 @@ export function AskBarView({
         : [],
     [showSuggestions, commandPrefix, usedCommands],
   );
+  const launcherItems = useMemo(
+    () => launcherSections.flatMap((section) => section.items),
+    [launcherSections],
+  );
+  const showLauncher =
+    !isBusy && !showSuggestions && launcherSections.length > 0 && launcherItems.length > 0;
+  const showCommandGuide = rawQuery === '/';
 
   // Reset the highlighted index whenever the command prefix changes
   // (user typed more characters and the results updated).
@@ -385,6 +415,15 @@ export function AskBarView({
   useEffect(() => {
     setHighlightedIndex(0);
   }, [commandPrefix]);
+  /* eslint-enable @eslint-react/set-state-in-effect */
+
+  /* eslint-disable @eslint-react/set-state-in-effect -- same rationale as the
+     command reset above: launcher result changes should reset keyboard focus. */
+  useEffect(() => {
+    if (showLauncher) {
+      setHighlightedIndex(0);
+    }
+  }, [showLauncher, query, launcherItems.length]);
   /* eslint-enable @eslint-react/set-state-in-effect */
 
   /**
@@ -486,6 +525,63 @@ export function AskBarView({
         }
       }
 
+      if (showLauncher) {
+        const highlightedItem = launcherItems[highlightedIndex];
+        if (e.key === 'ArrowDown') {
+          e.preventDefault();
+          setHighlightedIndex((i) => (i + 1) % launcherItems.length);
+          return;
+        }
+        if (e.key === 'ArrowUp') {
+          e.preventDefault();
+          setHighlightedIndex(
+            (i) => (i - 1 + launcherItems.length) % launcherItems.length,
+          );
+          return;
+        }
+        if (e.key === 'Tab') {
+          e.preventDefault();
+          setHighlightedIndex((i) =>
+            e.shiftKey
+              ? (i - 1 + launcherItems.length) % launcherItems.length
+              : (i + 1) % launcherItems.length,
+          );
+          return;
+        }
+        if (
+          e.key === 'Enter' &&
+          e.altKey &&
+          highlightedItem &&
+          onLauncherAction &&
+          (highlightedItem.kind === 'app' || highlightedItem.kind === 'file')
+        ) {
+          e.preventDefault();
+          onLauncherAction(highlightedItem, 'reveal');
+          return;
+        }
+        if (
+          e.key.toLowerCase() === 'c' &&
+          (e.ctrlKey || e.metaKey) &&
+          e.shiftKey &&
+          highlightedItem &&
+          onLauncherAction &&
+          (highlightedItem.kind === 'app' ||
+            highlightedItem.kind === 'file' ||
+            highlightedItem.kind === 'web')
+        ) {
+          e.preventDefault();
+          onLauncherAction(highlightedItem, 'copy_path');
+          return;
+        }
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault();
+          if (highlightedItem && onLauncherSelect) {
+            onLauncherSelect(highlightedItem);
+            return;
+          }
+        }
+      }
+
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
         onSubmit();
@@ -497,6 +593,10 @@ export function AskBarView({
       highlightedIndex,
       handleCommandSelect,
       lastSlashWord,
+      showLauncher,
+      launcherItems,
+      onLauncherSelect,
+      onLauncherAction,
       onSubmit,
     ],
   );
@@ -606,9 +706,37 @@ export function AskBarView({
               commands={filteredCommands}
               highlightedIndex={highlightedIndex}
               onSelect={handleCommandSelect}
+              showGuide={showCommandGuide}
             />
           </motion.div>
         )}
+      </AnimatePresence>
+      <AnimatePresence>
+        {showLauncher ? (
+          <motion.div
+            key="launcher-results"
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{
+              height: { duration: 0.22, ease: [0.16, 1, 0.3, 1] },
+              opacity: { duration: 0.16 },
+            }}
+            style={{ overflow: 'hidden' }}
+          >
+            <div className="mb-1 overflow-hidden rounded-xl border border-surface-border bg-surface-base/98 shadow-bar">
+              <LauncherResults
+                sections={launcherSections}
+                highlightedIndex={Math.min(
+                  highlightedIndex,
+                  launcherItems.length - 1,
+                )}
+                onSelect={(item) => onLauncherSelect?.(item)}
+                onAction={(item, action) => onLauncherAction?.(item, action)}
+              />
+            </div>
+          </motion.div>
+        ) : null}
       </AnimatePresence>
       <div className="relative window-drag-region" data-window-drag-region>
         <div className="flex items-center w-full px-3 py-2.5 gap-2">
@@ -680,15 +808,21 @@ export function AskBarView({
             label={
               isAtMaxImages
                 ? 'Maximum 3 images attached'
-                : 'Screenshot temporarily disabled'
+                : isBusy
+                  ? 'Screenshot temporarily disabled'
+                  : 'Take a screenshot'
             }
           >
             <button
               type="button"
               onClick={onScreenshot}
-              disabled
+              disabled={isScreenshotDisabled}
               aria-label="Take screenshot"
-              className="window-no-drag shrink-0 w-7 h-7 flex items-center justify-center rounded-lg text-text-secondary transition-colors duration-150 disabled:opacity-35 disabled:cursor-not-allowed cursor-default"
+              className={`window-no-drag shrink-0 w-7 h-7 flex items-center justify-center rounded-lg text-text-secondary transition-colors duration-150 disabled:opacity-35 disabled:cursor-not-allowed ${
+                isScreenshotDisabled
+                  ? 'cursor-default'
+                  : 'hover:text-text-primary hover:bg-white/8 cursor-pointer'
+              }`}
             >
               {CAMERA_ICON}
             </button>

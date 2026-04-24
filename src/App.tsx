@@ -4,6 +4,7 @@ import {
   useState,
   useEffect,
   useCallback,
+  useMemo,
   useRef,
   useLayoutEffect,
 } from 'react';
@@ -32,6 +33,15 @@ import {
   SCREEN_CAPTURE_PLACEHOLDER,
   buildPrompt,
 } from './config/commands';
+import {
+  buildLauncherSections,
+  type LauncherApp,
+  type LauncherFile,
+  type LauncherItem,
+  type LauncherItemAction,
+  type LauncherSection,
+} from './config/launcher';
+import type { ConversationSummary } from './types/history';
 import './App.css';
 
 /** Fallback model name used before runtime provider settings resolve at startup. */
@@ -179,6 +189,13 @@ function App() {
   const [searchActive, setSearchActive] = useState(false);
 
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const focusInputAtEnd = useCallback(() => {
+    const input = inputRef.current;
+    if (!input) return;
+    input.focus();
+    const end = input.value.length;
+    input.setSelectionRange(end, end);
+  }, []);
 
   /** Images attached to the current (unsent) message. Blob URLs render
    *  immediately; file paths are set asynchronously after Rust processing. */
@@ -216,6 +233,11 @@ function App() {
    */
   const screenCapturePendingRef = useRef(false);
   /**
+   * Prevents the generic blur auto-hide from closing the floating chat while
+   * the native screenshot flow temporarily hides or defocuses the window.
+   */
+  const suppressBlurHideRef = useRef(false);
+  /**
    * Stores the input state (query + context) captured just before a /screen
    * submit clears them. Used by handleCancel to restore the ask bar if the
    * user aborts the in-flight capture.
@@ -243,6 +265,12 @@ function App() {
   } | null>(null);
   const [providerSettings, setProviderSettings] =
     useState<ProviderSettings | null>(null);
+  const [launcherConversations, setLauncherConversations] = useState<
+    ConversationSummary[]
+  >([]);
+  const [launcherApps, setLauncherApps] = useState<LauncherApp[]>([]);
+  const [launcherFiles, setLauncherFiles] = useState<LauncherFile[]>([]);
+  const [debouncedQuery, setDebouncedQuery] = useState('');
 
   /**
    * True when the window is near the screen bottom and should grow upward.
@@ -724,6 +752,92 @@ function App() {
     [deleteConversation, conversationId, resetHistory],
   );
 
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedQuery(query.trim());
+    }, 120);
+
+    return () => clearTimeout(timer);
+  }, [query]);
+
+  useEffect(() => {
+    if (
+      isHistoryOpen ||
+      isSettingsOpen ||
+      isGenerating ||
+      isSubmitPending
+    ) {
+      setLauncherConversations([]);
+      setLauncherApps([]);
+      setLauncherFiles([]);
+      return;
+    }
+
+    const trimmed = debouncedQuery.trim();
+    const launcherSearchQuery =
+      trimmed.startsWith('/') && !trimmed.includes(' ')
+        ? trimmed.slice(1)
+        : trimmed;
+    if (!launcherSearchQuery) {
+      setLauncherConversations([]);
+      setLauncherApps([]);
+      setLauncherFiles([]);
+      return;
+    }
+
+    let isCancelled = false;
+    void listConversations(launcherSearchQuery)
+      .then((rows) => {
+        if (!isCancelled) {
+          setLauncherConversations(rows.slice(0, 5));
+        }
+      })
+      .catch(() => {
+        if (!isCancelled) {
+          setLauncherConversations([]);
+        }
+      });
+    void invoke<LauncherApp[]>('search_launcher_apps', {
+      query: launcherSearchQuery,
+      limit: 5,
+    })
+      .then((rows) => {
+        if (!isCancelled) {
+          setLauncherApps(rows);
+        }
+      })
+      .catch(() => {
+        if (!isCancelled) {
+          setLauncherApps([]);
+        }
+      });
+    void invoke<LauncherFile[]>('search_launcher_files', {
+      query: launcherSearchQuery,
+      limit: 5,
+    })
+      .then((rows) => {
+        if (!isCancelled) {
+          setLauncherFiles(rows);
+        }
+      })
+      .catch(() => {
+        if (!isCancelled) {
+          setLauncherFiles([]);
+        }
+      });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [
+    isHistoryOpen,
+    isSettingsOpen,
+    isGenerating,
+    isSubmitPending,
+    listConversations,
+    debouncedQuery,
+  ]);
+
   /**
    * Shared reset sequence for all "start a new conversation" paths.
    */
@@ -891,16 +1005,23 @@ function App() {
     /* v8 ignore start -- defensive guard: button is always disabled at max images, so this branch is unreachable through normal UI interaction */
     if (attachedImages.length >= MAX_IMAGES) return;
     /* v8 ignore stop */
-    const base64 = await invoke<string | null>('capture_screenshot_command');
-    if (!base64) return;
-    const binary = atob(base64);
-    const bytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i++) {
-      bytes[i] = binary.charCodeAt(i);
+    suppressBlurHideRef.current = true;
+    try {
+      const base64 = await invoke<string | null>('capture_screenshot_command');
+      if (!base64) return;
+      const binary = atob(base64);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) {
+        bytes[i] = binary.charCodeAt(i);
+      }
+      const blob = new Blob([bytes], { type: 'image/png' });
+      const file = new File([blob], 'screenshot.png', { type: 'image/png' });
+      handleImagesAttached([file]);
+    } finally {
+      requestAnimationFrame(() => {
+        suppressBlurHideRef.current = false;
+      });
     }
-    const blob = new Blob([bytes], { type: 'image/png' });
-    const file = new File([blob], 'screenshot.png', { type: 'image/png' });
-    handleImagesAttached([file]);
   }, [attachedImages, handleImagesAttached]);
 
   /** Removes an attached image from state, revokes the blob URL, and
@@ -1001,6 +1122,7 @@ function App() {
 
       let screenshotPath: string;
       try {
+        suppressBlurHideRef.current = true;
         screenshotPath = await invoke<string>('capture_full_screen_command');
       } catch (e) {
         screenCapturePendingRef.current = false;
@@ -1020,6 +1142,9 @@ function App() {
               ? e.message
               : String(e),
         );
+        requestAnimationFrame(() => {
+          suppressBlurHideRef.current = false;
+        });
         return;
       }
 
@@ -1028,7 +1153,10 @@ function App() {
       const wasCancelled = !screenCapturePendingRef.current;
       screenCapturePendingRef.current = false;
       screenCaptureInputSnapshotRef.current = null;
-      if (wasCancelled) return;
+      if (wasCancelled) {
+        suppressBlurHideRef.current = false;
+        return;
+      }
 
       // Capture succeeded: finalize the submit.
       setCaptureError(null);
@@ -1045,6 +1173,9 @@ function App() {
         URL.revokeObjectURL(img.blobUrl);
       }
       setAttachedImages([]);
+      requestAnimationFrame(() => {
+        suppressBlurHideRef.current = false;
+      });
     },
     [selectedContext, attachedImages, ask, setSelectedContext, setCaptureError],
   );
@@ -1060,7 +1191,13 @@ function App() {
     setCaptureError(null);
 
     // Parse all valid commands from anywhere in the message.
-    const trimmedQuery = query.trim();
+    let trimmedQuery = query.trim();
+    if (/^\/search(?:\s|$)/i.test(trimmedQuery)) {
+      trimmedQuery = trimmedQuery.replace(/^\/search\b\s*/i, '').trim();
+      if (!trimmedQuery && attachedImages.length === 0) {
+        return;
+      }
+    }
     const { found, strippedMessage } = parseCommands(trimmedQuery);
     const hasScreen = found.has('/screen');
     const hasThink = found.has('/think');
@@ -1245,6 +1382,86 @@ function App() {
     searchActive,
   ]);
 
+  const launcherSections = useMemo<LauncherSection[]>(
+    () =>
+      buildLauncherSections(
+        query,
+        query.trim() ? launcherConversations : [],
+        query.trim() ? launcherApps : [],
+        query.trim() ? launcherFiles : [],
+      ),
+    [launcherApps, launcherConversations, launcherFiles, query],
+  );
+
+  const handleLauncherSelect = useCallback(
+    async (item: LauncherItem) => {
+      switch (item.kind) {
+        case 'calculation':
+          if (item.value) {
+            await navigator.clipboard.writeText(item.value);
+          }
+          return;
+        case 'ask':
+          handleSubmit();
+          return;
+        case 'command': {
+          const trigger = item.value ?? item.title;
+          const remainder = query.trim();
+          const nextQuery =
+            remainder && !remainder.startsWith('/')
+              ? `${trigger} ${remainder}`
+              : `${trigger} `;
+          setQuery(nextQuery);
+          requestAnimationFrame(() => inputRef.current?.focus());
+          return;
+        }
+        case 'conversation':
+          if (item.value) {
+            void handleLoadConversation(item.value);
+          }
+          return;
+        case 'app':
+        case 'file':
+          if (item.value) {
+            await invoke('open_path', { path: item.value });
+            requestHideOverlay();
+          }
+          return;
+        case 'web':
+          if (item.value) {
+            await invoke('open_url', { url: item.value });
+            requestHideOverlay();
+          }
+      }
+    },
+    [handleLoadConversation, handleSubmit, query, requestHideOverlay],
+  );
+
+  const handleLauncherAction = useCallback(
+    async (item: LauncherItem, action: LauncherItemAction) => {
+      if (!item.value) return;
+
+      if (action === 'copy_path') {
+        await navigator.clipboard.writeText(item.value);
+        return;
+      }
+
+      if (action === 'reveal') {
+        await invoke('open_containing_folder', {
+          path: item.value,
+          isDirectory: item.isDirectory ?? false,
+        });
+        requestHideOverlay();
+        return;
+      }
+
+      if (action === 'insert') {
+        setQuery(`${item.value} `);
+      }
+    },
+    [requestHideOverlay],
+  );
+
   // When a pending submit exists and all images finish processing, fire it.
   // Reads `attachedImages` directly (not via `executeSubmit` closure) to
   // guarantee the effect always sees the freshest file paths.
@@ -1331,6 +1548,7 @@ function App() {
         setSelectedContext(snapshot.context ?? null);
       }
       /* v8 ignore stop */
+      suppressBlurHideRef.current = false;
       requestAnimationFrame(() => inputRef.current?.focus());
       return;
     }
@@ -1422,10 +1640,39 @@ function App() {
   /** Programmatic focus when the overlay becomes visible. */
   useEffect(() => {
     if (overlayState === 'visible') {
-      const raf = requestAnimationFrame(() => inputRef.current?.focus());
+      const raf = requestAnimationFrame(() => focusInputAtEnd());
       return () => cancelAnimationFrame(raf);
     }
-  }, [overlayState]);
+  }, [overlayState, focusInputAtEnd]);
+
+  /** After a turn finishes, return focus to the input so the user can keep typing. */
+  useEffect(() => {
+    if (overlayState !== 'visible' || isGenerating || isSubmitPending) return;
+
+    const raf = requestAnimationFrame(() => focusInputAtEnd());
+    return () => cancelAnimationFrame(raf);
+  }, [
+    overlayState,
+    isGenerating,
+    isSubmitPending,
+    messages.length,
+    focusInputAtEnd,
+  ]);
+
+  /** Auto-hide the floating chat whenever the window loses focus. */
+  useEffect(() => {
+    if (overlayState !== 'visible') return;
+
+    const handleWindowBlur = () => {
+      if (suppressBlurHideRef.current) {
+        return;
+      }
+      handleCloseOverlay();
+    };
+
+    window.addEventListener('blur', handleWindowBlur);
+    return () => window.removeEventListener('blur', handleWindowBlur);
+  }, [overlayState, handleCloseOverlay]);
 
   /**
    * Commits the native window hide after a fixed deadline from the start of
@@ -1675,6 +1922,11 @@ function App() {
                   onImageRemove={handleImageRemove}
                   onImagePreview={handleAskBarImagePreview}
                   onScreenshot={handleScreenshot}
+                  launcherSections={
+                    !isHistoryOpen && !isSettingsOpen ? launcherSections : []
+                  }
+                  onLauncherSelect={handleLauncherSelect}
+                  onLauncherAction={handleLauncherAction}
                   isDragOver={isDragOver ?? undefined}
                 />
               </div>

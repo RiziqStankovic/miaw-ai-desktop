@@ -2,6 +2,7 @@ import React from 'react';
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { AskBarView } from '../AskBarView';
+import type { LauncherSection } from '../../config/launcher';
 import type { AttachedImage } from '../../types/image';
 
 function makeRef(): React.RefObject<HTMLTextAreaElement | null> {
@@ -26,6 +27,33 @@ const IMAGE_DEFAULTS = {
   onImagePreview: vi.fn(),
   onScreenshot: vi.fn(),
 };
+
+const LAUNCHER_SECTIONS: LauncherSection[] = [
+  {
+    id: 'primary',
+    title: 'Best match',
+    items: [
+      {
+        id: 'ask',
+        kind: 'ask',
+        title: 'Ask Miaw',
+        subtitle: 'chrome issue',
+        value: 'chrome issue',
+        hint: 'Chat',
+        accent: 'AI',
+      },
+      {
+        id: 'web',
+        kind: 'web',
+        title: 'Search the web',
+        subtitle: 'chrome issue',
+        value: 'https://www.google.com/search?q=chrome%20issue',
+        hint: 'Open',
+        accent: 'Browser',
+      },
+    ],
+  },
+];
 
 describe('AskBarView', () => {
   it('renders textarea with placeholder for input bar mode', () => {
@@ -1443,6 +1471,76 @@ describe('AskBarView', () => {
       const textarea = screen.getByPlaceholderText('Ask Thuki anything...');
       fireEvent.keyDown(textarea, { key: 'Tab' });
       expect(setQuery).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('launcher results', () => {
+    it('renders launcher results when sections are provided', () => {
+      render(
+        <AskBarView
+          {...IMAGE_DEFAULTS}
+          query="chrome issue"
+          setQuery={vi.fn()}
+          isChatMode={false}
+          isGenerating={false}
+          onSubmit={vi.fn()}
+          onCancel={vi.fn()}
+          inputRef={makeRef()}
+          launcherSections={LAUNCHER_SECTIONS}
+          onLauncherSelect={vi.fn()}
+        />,
+      );
+      expect(
+        screen.getByRole('listbox', { name: /launcher results/i }),
+      ).toBeInTheDocument();
+      expect(screen.getByText('Ask Miaw')).toBeInTheDocument();
+    });
+
+    it('Enter activates the highlighted launcher row', () => {
+      const onLauncherSelect = vi.fn();
+      render(
+        <AskBarView
+          {...IMAGE_DEFAULTS}
+          query="chrome issue"
+          setQuery={vi.fn()}
+          isChatMode={false}
+          isGenerating={false}
+          onSubmit={vi.fn()}
+          onCancel={vi.fn()}
+          inputRef={makeRef()}
+          launcherSections={LAUNCHER_SECTIONS}
+          onLauncherSelect={onLauncherSelect}
+        />,
+      );
+      fireEvent.keyDown(screen.getByPlaceholderText('Ask Miaw anything...'), {
+        key: 'Enter',
+        shiftKey: false,
+      });
+      expect(onLauncherSelect).toHaveBeenCalledWith(
+        LAUNCHER_SECTIONS[0].items[0],
+      );
+    });
+
+    it('ArrowDown moves launcher highlight to the next row', () => {
+      render(
+        <AskBarView
+          {...IMAGE_DEFAULTS}
+          query="chrome issue"
+          setQuery={vi.fn()}
+          isChatMode={false}
+          isGenerating={false}
+          onSubmit={vi.fn()}
+          onCancel={vi.fn()}
+          inputRef={makeRef()}
+          launcherSections={LAUNCHER_SECTIONS}
+          onLauncherSelect={vi.fn()}
+        />,
+      );
+      fireEvent.keyDown(screen.getByPlaceholderText('Ask Miaw anything...'), {
+        key: 'ArrowDown',
+      });
+      const options = screen.getAllByRole('option');
+      expect(options[1]).toHaveAttribute('aria-selected', 'true');
     });
   });
 

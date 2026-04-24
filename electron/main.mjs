@@ -22,7 +22,11 @@ import { createCommandHandlers, initializeBackend } from './backend/commands.mjs
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(__dirname, '..');
 const devServerUrl = process.env.VITE_DEV_SERVER_URL;
-const iconPath = path.join(projectRoot, 'public', 'miaw-logo.png');
+const APP_ID = 'id.cloudfren.miaw';
+const iconPath =
+  process.platform === 'win32'
+    ? path.join(projectRoot, 'icons', 'miaw.ico')
+    : path.join(projectRoot, 'public', 'miaw-logo.png');
 const enableDevTools = process.env.THUKI_ENABLE_DEVTOOLS?.trim() === 'true';
 const openDevToolsOnStart =
   process.env.THUKI_OPEN_DEVTOOLS_ON_START?.trim() === 'true';
@@ -255,6 +259,9 @@ function setupTray() {
 
 app.whenReady().then(async () => {
   app.setName('Miaw');
+  if (process.platform === 'win32') {
+    app.setAppUserModelId(APP_ID);
+  }
   logFilePath = path.join(app.getPath('userData'), 'miaw.log');
   log('app-ready', `packaged=${app.isPackaged} version=${app.getVersion()}`);
   protocol.handle('asset', (request) => {

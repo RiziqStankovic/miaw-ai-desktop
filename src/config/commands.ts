@@ -15,13 +15,16 @@ export interface Command {
   readonly description: string;
   /** Prompt template with $INPUT / $LANG placeholders. Absent for non-template commands. */
   readonly promptTemplate?: string;
+  /** False when the command exists in code but should not be exposed in UI. */
+  readonly enabled?: boolean;
 }
 
-export const COMMANDS: readonly Command[] = [
+const ALL_COMMANDS: readonly Command[] = [
   {
     trigger: '/search',
     label: '/search',
     description: 'Agentic web search: iterative reasoning & cited synthesis',
+    enabled: false,
   },
   {
     trigger: '/screen',
@@ -76,6 +79,10 @@ export const COMMANDS: readonly Command[] = [
       'Read the following text and respond in two parts:\n\n**Part 1: Summary.** Write a short paragraph (3-5 sentences) explaining what this text is about. Cover: what the situation or topic is, who is involved, what the current state is, and why it matters or what is at stake. This should give someone who has not read the original text a clear picture of the context.\n\n**Part 2: To-dos.** List every task, action item, commitment, and follow-up from the text as a markdown checkbox list. Every single item MUST begin with "- [ ] " (hyphen, space, open bracket, space, close bracket, space). Do not use numbered lists, plain bullets, headers, or any other format for the list items.\n\nSeparate the two parts with a blank line. Do not add any headings or labels like "Summary:" or "To-dos:"; just write the paragraph, then the list.\n\nExample output format:\nThis is a paragraph explaining what the text is about, who is involved, and what the situation is. It gives enough context to understand why the tasks matter. It is clear and direct.\n\n- [ ] First task to complete\n- [ ] Second task to complete\n- [ ] Third task to complete\n\nFor each to-do item, include who is responsible (if mentioned), what needs to be done, and any deadline or timeframe (if mentioned). Order by urgency or sequence when possible.\n\nText: $INPUT',
   },
 ] as const;
+
+export const COMMANDS: readonly Command[] = ALL_COMMANDS.filter(
+  (command) => command.enabled !== false,
+);
 
 /**
  * Sentinel image-path value used as a loading placeholder while the
