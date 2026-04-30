@@ -1,5 +1,7 @@
 # Miaw Windows Recreate from Thuki-macos
 
+<a href="https://www.producthunt.com/products/miaw-ai-secretary?embed=true&amp;utm_source=badge-featured&amp;utm_medium=badge&amp;utm_campaign=badge-miaw-ai-secretary" target="_blank" rel="noopener noreferrer"><img alt="Miaw AI secretary - Your lightweight AI secretary on desktop | Product Hunt" width="250" height="54" src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1135586&amp;theme=light&amp;t=1777515350805"></a>
+
 Electron-based Windows-first app for `Miaw` that reuses the current React UI and preserves the internal Tauri-compatible command surface where possible.
 
 
@@ -11,7 +13,6 @@ Electron-based Windows-first app for `Miaw` that reuses the current React UI and
 # Support model local 
 
 <img width="550" height="616" alt="image" src="https://github.com/user-attachments/assets/1124f105-09d2-4776-8e67-f535c9b3c589" />
-
 
 
 ## What is implemented
