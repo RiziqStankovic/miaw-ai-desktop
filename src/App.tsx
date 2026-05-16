@@ -41,6 +41,14 @@ import {
   type LauncherItemAction,
   type LauncherSection,
 } from './config/launcher';
+import {
+  buildLaunchSearchQueries,
+  detectLaunchIntent,
+  isLaunchConfirmation,
+  isLaunchRejection,
+  resolveLaunchTarget,
+  type ResolvedLaunchCandidate,
+} from './config/launchIntent';
 import type { ConversationSummary } from './types/history';
 import './App.css';
 
@@ -56,7 +64,9 @@ const ONBOARDING_EVENT = 'thuki://onboarding';
  * in non-key windows, which stalls spring animations indefinitely and makes
  * `AnimatePresence.onExitComplete` unreliable when the panel is unfocused.
  */
-const HIDE_COMMIT_DELAY_MS = 350;
+  const HIDE_COMMIT_DELAY_MS = 350;
+  const MIN_RESIZABLE_WINDOW_WIDTH = 420;
+  const MAX_RESIZABLE_WINDOW_WIDTH = 960;
 
 /** Must match `OVERLAY_LOGICAL_WIDTH` in `src-tauri/src/lib.rs`. */
 const OVERLAY_WIDTH = 600;
@@ -103,6 +113,11 @@ type OverlayVisibilityPayload =
     }
   | { state: 'hide-request' };
 type OverlayState = 'visible' | 'hidden' | 'hiding';
+type LaunchPromptState = {
+  candidate?: ResolvedLaunchCandidate;
+  message: string;
+  originQuery: string;
+};
 
 /**
  * Main application orchestrator for Thuki.
@@ -237,6 +252,11 @@ function App() {
    * the native screenshot flow temporarily hides or defocuses the window.
    */
   const suppressBlurHideRef = useRef(false);
+  const manualResizeActiveRef = useRef(false);
+  const resizeStateRef = useRef<{
+    edge: 'left' | 'right';
+    lastClientX: number;
+  } | null>(null);
   /**
    * Stores the input state (query + context) captured just before a /screen
    * submit clears them. Used by handleCancel to restore the ask bar if the
@@ -271,6 +291,9 @@ function App() {
   const [launcherApps, setLauncherApps] = useState<LauncherApp[]>([]);
   const [launcherFiles, setLauncherFiles] = useState<LauncherFile[]>([]);
   const [debouncedQuery, setDebouncedQuery] = useState('');
+  const [launchPrompt, setLaunchPrompt] = useState<LaunchPromptState | null>(
+    null,
+  );
 
   /**
    * True when the window is near the screen bottom and should grow upward.
@@ -285,6 +308,8 @@ function App() {
    */
   const isChatMode = messages.length > 0 || isGenerating || isSubmitPending;
   const previousIsChatModeRef = useRef(isChatMode);
+  const isChatModeRef = useRef(isChatMode);
+  isChatModeRef.current = isChatMode;
 
   /**
    * The bookmark save button is active once the AI has produced at least one
@@ -343,6 +368,33 @@ function App() {
   });
   sessionStateRef.current.hasActiveSession = hasActiveSession;
 
+  const syncWindowHeightToContainer = useCallback((container: HTMLDivElement) => {
+    const rect = container.getBoundingClientRect();
+    let targetHeight = Math.ceil(rect.height) + CONTAINER_VERTICAL_PADDING;
+
+    if (isGeneratingRef.current) {
+      if (targetHeight > maxHeightRef.current) {
+        maxHeightRef.current = targetHeight;
+      } else {
+        targetHeight = maxHeightRef.current;
+      }
+    }
+
+    if (growsUpwardRef.current) {
+      const { x, bottomY } = windowPosRef.current;
+      const newY = Math.max(0, bottomY - targetHeight);
+      void invoke('set_window_frame', {
+        x,
+        y: newY,
+        width: OVERLAY_WIDTH,
+        height: targetHeight,
+      });
+      return;
+    }
+
+    void getCurrentWindow().setSize(new LogicalSize(OVERLAY_WIDTH, targetHeight));
+  }, []);
+
   /**
    * Callback ref to reliably attach the ResizeObserver when the conditionally
    * rendered Framer Motion container actually mounts in the DOM. This fixes
@@ -361,49 +413,22 @@ function App() {
       observerRef.current = null;
     }
 
-    if (node) {
-      const observer = new ResizeObserver(
-        /* v8 ignore start -- ResizeObserver callback requires a native browser resize event */
-        (entries) => {
-          requestAnimationFrame(() => {
-            for (const entry of entries) {
-              const rect = entry.target.getBoundingClientRect();
-              // Total vertical room: 8px (pt-2) + 24px (pb-6) + 16px (motion py-2) = 48px.
-              // This ensures the tightened drop shadows aren't clipped by the native window edge.
-              let targetHeight =
-                Math.ceil(rect.height) + CONTAINER_VERTICAL_PADDING;
-
-              // During streaming, only allow the window to grow (never
-              // shrink) to prevent jitter from Streamdown block reflows.
-              if (isGeneratingRef.current) {
-                if (targetHeight > maxHeightRef.current) {
-                  maxHeightRef.current = targetHeight;
-                } else {
-                  targetHeight = maxHeightRef.current;
-                }
+      if (node) {
+        const observer = new ResizeObserver(
+          /* v8 ignore start -- ResizeObserver callback requires a native browser resize event */
+          (entries) => {
+            requestAnimationFrame(() => {
+              if (manualResizeActiveRef.current) {
+                return;
               }
 
-              if (growsUpwardRef.current) {
-                // Grow upward: pin the window bottom and expand the top edge.
-                // Clamp Y so the window never extends above the menu bar.
-                const { x, bottomY } = windowPosRef.current;
-                const newY = Math.max(0, bottomY - targetHeight);
-                void invoke('set_window_frame', {
-                  x,
-                  y: newY,
-                  width: OVERLAY_WIDTH,
-                  height: targetHeight,
-                });
-              } else {
-                void getCurrentWindow().setSize(
-                  new LogicalSize(OVERLAY_WIDTH, targetHeight),
-                );
+              for (const entry of entries) {
+                syncWindowHeightToContainer(entry.target as HTMLDivElement);
               }
-            }
-          });
-        },
-        /* v8 ignore stop */
-      );
+            });
+          },
+          /* v8 ignore stop */
+        );
 
       observer.observe(node);
       observerRef.current = observer;
@@ -433,9 +458,7 @@ function App() {
       forceNewSession = false,
     ) => {
       const shouldPreserveSession =
-        !forceNewSession &&
-        context === null &&
-        sessionStateRef.current.hasActiveSession;
+        !forceNewSession && context === null && isChatModeRef.current;
       const shouldGrowUp =
         windowY !== null &&
         screenBottomY !== null &&
@@ -453,6 +476,7 @@ function App() {
       setIsHistoryOpen(false);
       setIsSettingsOpen(false);
       setCaptureError(null);
+      setLaunchPrompt(null);
       if (!shouldPreserveSession) {
         setSessionId((id) => id + 1);
         setQuery('');
@@ -479,20 +503,27 @@ function App() {
    * deferred until Framer Motion finishes the exit transition.
    */
   const requestHideOverlay = useCallback(() => {
-    void cancel();
+    const shouldPreserveChatSession = isChatModeRef.current;
     growsUpwardRef.current = false;
     setGrowsUpward(false);
-    screenCapturePendingRef.current = false;
-    screenCaptureInputSnapshotRef.current = null;
-    setSearchActive(false);
+    setLaunchPrompt(null);
     setSelectedContext(null);
     setIsHistoryOpen(false);
     setIsSettingsOpen(false);
     setPreviewImageUrl(null);
-    setAttachedImages((prev) => {
-      for (const img of prev) URL.revokeObjectURL(img.blobUrl);
-      return [];
-    });
+
+    if (!shouldPreserveChatSession) {
+      void cancel();
+      screenCapturePendingRef.current = false;
+      screenCaptureInputSnapshotRef.current = null;
+      setSearchActive(false);
+      setQuery('');
+      setAttachedImages((prev) => {
+        for (const img of prev) URL.revokeObjectURL(img.blobUrl);
+        return [];
+      });
+    }
+
     setOverlayState((currentState) => {
       if (currentState === 'hidden' || currentState === 'hiding') {
         return currentState;
@@ -510,7 +541,7 @@ function App() {
   const handleHistoryToggle = useCallback(() => {
     setIsSettingsOpen(false);
     setIsHistoryOpen((prev) => !prev);
-  }, []);
+  }, [syncWindowHeightToContainer]);
 
   /** Toggles the runtime settings panel open/closed. */
   const handleSettingsToggle = useCallback(() => {
@@ -995,8 +1026,8 @@ function App() {
   );
 
   /**
-   * Invokes the Rust `capture_screenshot` command, which hides the window,
-   * lets the user drag-select a screen region, then returns the captured image
+   * Invokes the screenshot command, which hides the window, lets the user
+   * select an area with Snipping Tool, then returns the captured image
    * as a base64 PNG string (or null if the user cancelled).
    * On success, converts the base64 to a File and feeds it into the existing
    * handleImagesAttached pipeline - identical to a paste or drag-drop.
@@ -1020,9 +1051,14 @@ function App() {
     } finally {
       requestAnimationFrame(() => {
         suppressBlurHideRef.current = false;
+        inputRef.current?.focus();
       });
     }
   }, [attachedImages, handleImagesAttached]);
+
+  const captureScreenToSavedPath = useCallback(async () => {
+    return invoke<string>('capture_full_screen_command');
+  }, []);
 
   /** Removes an attached image from state, revokes the blob URL, and
    *  deletes the staged file from disk if processing completed. */
@@ -1074,9 +1110,9 @@ function App() {
   );
 
   /**
-   * Async handler for the `/screen` command path. Invokes the Rust
-   * `capture_full_screen_command`, which silently captures the screen
-   * (excluding Thuki's own windows) and returns the saved file path.
+   * Async handler for the `/screen` command path. Invokes
+   * `capture_full_screen_command`, which hides the window, captures the
+   * primary screen, and returns a normal file path for the chat pipeline.
    * On success, merges the screenshot path with any manually attached
    * images and calls ask(). On error, restores the query so no input is lost.
    */
@@ -1123,7 +1159,7 @@ function App() {
       let screenshotPath: string;
       try {
         suppressBlurHideRef.current = true;
-        screenshotPath = await invoke<string>('capture_full_screen_command');
+        screenshotPath = await captureScreenToSavedPath();
       } catch (e) {
         screenCapturePendingRef.current = false;
         screenCaptureInputSnapshotRef.current = null;
@@ -1177,10 +1213,79 @@ function App() {
         suppressBlurHideRef.current = false;
       });
     },
-    [selectedContext, attachedImages, ask, setSelectedContext, setCaptureError],
+    [
+      selectedContext,
+      attachedImages,
+      ask,
+      setSelectedContext,
+      setCaptureError,
+      captureScreenToSavedPath,
+    ],
   );
 
-  const handleSubmit = useCallback(() => {
+  const clearLaunchDraft = useCallback(() => {
+    setLaunchPrompt(null);
+    setQuery('');
+    setSelectedContext(null);
+    if (inputRef.current) {
+      inputRef.current.style.height = 'auto';
+    }
+  }, []);
+
+  const executeLaunchCandidate = useCallback(
+    async (candidate: ResolvedLaunchCandidate) => {
+      clearLaunchDraft();
+      await invoke('open_path', { path: candidate.path });
+      requestHideOverlay();
+    },
+    [clearLaunchDraft, requestHideOverlay],
+  );
+
+  const executeLaunchUrl = useCallback(
+    async (url: string) => {
+      clearLaunchDraft();
+      await invoke('open_url', { url });
+      requestHideOverlay();
+    },
+    [clearLaunchDraft, requestHideOverlay],
+  );
+
+  const resolveLaunchLookup = useCallback(async (target: string) => {
+    const searchQueries = buildLaunchSearchQueries(target);
+    const [appResults, fileResults] = await Promise.all([
+      Promise.all(
+        searchQueries.map((searchQuery) =>
+          invoke<LauncherApp[]>('search_launcher_apps', {
+            query: searchQuery,
+            limit: 5,
+          }),
+        ),
+      ),
+      Promise.all(
+        searchQueries.map((searchQuery) =>
+          invoke<LauncherFile[]>('search_launcher_files', {
+            query: searchQuery,
+            limit: 5,
+          }),
+        ),
+      ),
+    ]);
+
+    const apps = [...new Map(
+      appResults
+        .flat()
+        .map((item) => [item.path.toLowerCase(), item] as const),
+    ).values()];
+    const files = [...new Map(
+      fileResults
+        .flat()
+        .map((item) => [item.path.toLowerCase(), item] as const),
+    ).values()];
+
+    return resolveLaunchTarget(target, apps, files);
+  }, []);
+
+  const handleSubmit = useCallback(async () => {
     if (
       (query.trim().length === 0 && attachedImages.length === 0) ||
       isGenerating
@@ -1192,6 +1297,27 @@ function App() {
 
     // Parse all valid commands from anywhere in the message.
     let trimmedQuery = query.trim();
+    if (launchPrompt) {
+      if (launchPrompt.candidate) {
+        if (
+          trimmedQuery === launchPrompt.originQuery ||
+          isLaunchConfirmation(trimmedQuery)
+        ) {
+          await executeLaunchCandidate(launchPrompt.candidate);
+          return;
+        }
+        if (isLaunchRejection(trimmedQuery)) {
+          setLaunchPrompt(null);
+          setQuery(launchPrompt.originQuery);
+          return;
+        }
+      } else if (trimmedQuery === launchPrompt.originQuery) {
+        return;
+      }
+
+      setLaunchPrompt(null);
+    }
+
     if (/^\/search(?:\s|$)/i.test(trimmedQuery)) {
       trimmedQuery = trimmedQuery.replace(/^\/search\b\s*/i, '').trim();
       if (!trimmedQuery && attachedImages.length === 0) {
@@ -1202,6 +1328,42 @@ function App() {
     const hasScreen = found.has('/screen');
     const hasThink = found.has('/think');
     const hasSearch = found.has('/search');
+
+    const launchIntent =
+      attachedImages.length === 0 &&
+      !selectedContext?.trim() &&
+      found.size === 0 &&
+      !searchActive
+        ? detectLaunchIntent(trimmedQuery)
+        : null;
+
+    if (launchIntent?.kind === 'url' && launchIntent.url) {
+      await executeLaunchUrl(launchIntent.url);
+      return;
+    }
+
+    if (launchIntent?.kind === 'lookup') {
+      const resolution = await resolveLaunchLookup(launchIntent.target);
+      if (resolution.status === 'auto' && resolution.candidate) {
+        await executeLaunchCandidate(resolution.candidate);
+        return;
+      }
+      if (resolution.status === 'confirm' && resolution.candidate) {
+        setLaunchPrompt({
+          candidate: resolution.candidate,
+          message: resolution.message ?? `Open ${resolution.candidate.title}?`,
+          originQuery: trimmedQuery,
+        });
+        return;
+      }
+      if (resolution.message) {
+        setLaunchPrompt({
+          message: resolution.message,
+          originQuery: trimmedQuery,
+        });
+        return;
+      }
+    }
 
     // `/search` entry point AND sticky follow-ups. Once a search turn is in
     // flight, subsequent submits without an explicit slash command continue
@@ -1380,6 +1542,10 @@ function App() {
     ask,
     askSearch,
     searchActive,
+    launchPrompt,
+    executeLaunchCandidate,
+    executeLaunchUrl,
+    resolveLaunchLookup,
   ]);
 
   const launcherSections = useMemo<LauncherSection[]>(
@@ -1423,18 +1589,20 @@ function App() {
         case 'app':
         case 'file':
           if (item.value) {
+            clearLaunchDraft();
             await invoke('open_path', { path: item.value });
             requestHideOverlay();
           }
           return;
         case 'web':
           if (item.value) {
+            clearLaunchDraft();
             await invoke('open_url', { url: item.value });
             requestHideOverlay();
           }
       }
     },
-    [handleLoadConversation, handleSubmit, query, requestHideOverlay],
+    [clearLaunchDraft, handleLoadConversation, handleSubmit, query, requestHideOverlay],
   );
 
   const handleLauncherAction = useCallback(
@@ -1446,18 +1614,28 @@ function App() {
         return;
       }
 
-      if (action === 'reveal') {
-        await invoke('open_containing_folder', {
-          path: item.value,
-          isDirectory: item.isDirectory ?? false,
-        });
-        requestHideOverlay();
-        return;
-      }
+        if (action === 'reveal') {
+          await invoke('open_containing_folder', {
+            path: item.value,
+            isDirectory: item.isDirectory ?? false,
+          });
+          requestHideOverlay();
+          return;
+        }
 
-      if (action === 'insert') {
-        setQuery(`${item.value} `);
-      }
+        if (action === 'open_console') {
+          await invoke('open_in_terminal', {
+            path: item.value,
+            kind: item.kind,
+            isDirectory: item.isDirectory ?? false,
+          });
+          requestHideOverlay();
+          return;
+        }
+
+        if (action === 'insert') {
+          setQuery(`${item.value} `);
+        }
     },
     [requestHideOverlay],
   );
@@ -1625,6 +1803,68 @@ function App() {
     void getCurrentWindow().toggleMaximize();
   }, []);
 
+  function stopHorizontalResize() {
+    resizeStateRef.current = null;
+    manualResizeActiveRef.current = false;
+    document.body.style.cursor = '';
+    document.documentElement.style.cursor = '';
+    document.documentElement.classList.remove('window-manual-resize');
+    window.removeEventListener('mousemove', handleHorizontalResizeMove);
+    window.removeEventListener('mouseup', stopHorizontalResize);
+
+    const container = morphingContainerNodeRef.current;
+    if (container) {
+      requestAnimationFrame(() => {
+        syncWindowHeightToContainer(container);
+      });
+    }
+  }
+
+  function handleHorizontalResizeMove(event: MouseEvent) {
+    const resizeState = resizeStateRef.current;
+    if (!resizeState) {
+      return;
+    }
+
+    const deltaX = event.clientX - resizeState.lastClientX;
+    if (deltaX === 0) {
+      return;
+    }
+
+    resizeState.lastClientX = event.clientX;
+    void invoke('__window.resizeHorizontal', {
+      edge: resizeState.edge,
+      deltaX,
+      minWidth: MIN_RESIZABLE_WINDOW_WIDTH,
+      maxWidth: MAX_RESIZABLE_WINDOW_WIDTH,
+    });
+  }
+
+  const startHorizontalResize = useCallback(
+    (edge: 'left' | 'right') => (event: React.MouseEvent<HTMLDivElement>) => {
+      event.preventDefault();
+      event.stopPropagation();
+      manualResizeActiveRef.current = true;
+      resizeStateRef.current = {
+        edge,
+        lastClientX: event.clientX,
+      };
+      document.body.style.cursor = 'ew-resize';
+      document.documentElement.style.cursor = 'ew-resize';
+      document.documentElement.classList.add('window-manual-resize');
+      window.addEventListener('mousemove', handleHorizontalResizeMove);
+      window.addEventListener('mouseup', stopHorizontalResize);
+    },
+    [handleHorizontalResizeMove, stopHorizontalResize],
+  );
+
+  useEffect(
+    () => () => {
+      stopHorizontalResize();
+    },
+    [stopHorizontalResize],
+  );
+
   /** Hide window on Escape or Cmd+W (macOS) / Ctrl+W. */
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -1689,6 +1929,13 @@ function App() {
 
     return () => clearTimeout(timer);
   }, [overlayState]);
+
+  useEffect(
+    () => () => {
+      stopHorizontalResize();
+    },
+    [stopHorizontalResize],
+  );
 
   /**
    * Handles mousedown on any surface of the application window.
@@ -1762,8 +2009,8 @@ function App() {
   return (
     // Minimal padding (pt-2 pb-6) provides just enough physical clearance for the
     // tightened drop shadow to render without clipping at the native window edge.
-    <div
-      onMouseDown={handleDragStart}
+      <div
+        onMouseDown={handleDragStart}
       onDragOver={handleRootDragOver}
       onDragLeave={handleRootDragLeave}
       onDrop={handleRootDrop}
@@ -1771,19 +2018,29 @@ function App() {
     >
       <AnimatePresence mode="wait">
         {shouldRenderOverlay ? (
-          <motion.div
-            key={`overlay-${sessionId}`}
-            initial={{ opacity: 0, y: -20, scale: 0.96 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: -16, scale: 0.98 }}
-            transition={{ type: 'spring', stiffness: 260, damping: 24 }}
-            className="w-full max-w-[960px] px-4 py-2 overflow-visible"
-          >
-            {/* Relative wrapper - serves as the positioning context for the
-                chat-mode history dropdown so it can sit outside the morphing
-                container's overflow-hidden boundary without being clipped. */}
-            <div className="relative">
-              {/* Morphing Container - flex column ensures the input bar
+            <motion.div
+              key={`overlay-${sessionId}`}
+              initial={{ opacity: 0, y: -20, scale: 0.96 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -16, scale: 0.98 }}
+              transition={{ type: 'spring', stiffness: 260, damping: 24 }}
+              className="window-shell w-full max-w-[960px] px-4 py-2 overflow-visible"
+            >
+              {/* Relative wrapper - serves as the positioning context for the
+                  chat-mode history dropdown so it can sit outside the morphing
+                  container's overflow-hidden boundary without being clipped. */}
+              <div className="relative">
+                <div
+                  className="window-resize-handle window-resize-handle-left"
+                  data-resize-handle="left"
+                  onMouseDown={startHorizontalResize('left')}
+                />
+                <div
+                  className="window-resize-handle window-resize-handle-right"
+                  data-resize-handle="right"
+                  onMouseDown={startHorizontalResize('right')}
+                />
+                {/* Morphing Container - flex column ensures the input bar
                   always sticks to the bottom without spring animation lag.
                   A CSS `transition: min-height` drives smooth window growth
                   when the chat-mode history dropdown is open; the existing
@@ -1901,6 +2158,34 @@ function App() {
                     <p className="text-red-400 text-xs leading-relaxed">
                       {captureError}
                     </p>
+                  </div>
+                )}
+
+                {launchPrompt && (
+                  <div className="flex items-center justify-between gap-3 border-t border-primary/15 bg-primary/6 px-4 py-2">
+                    <p className="text-xs leading-relaxed text-text-primary">
+                      {launchPrompt.message}
+                    </p>
+                    <div className="flex items-center gap-2">
+                      {launchPrompt.candidate ? (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            void executeLaunchCandidate(launchPrompt.candidate!)
+                          }
+                          className="window-no-drag rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-neutral transition-opacity hover:opacity-90"
+                        >
+                          Open
+                        </button>
+                      ) : null}
+                      <button
+                        type="button"
+                        onClick={() => setLaunchPrompt(null)}
+                        className="window-no-drag rounded-lg border border-surface-border px-3 py-1.5 text-xs text-text-secondary transition-colors hover:bg-white/6 hover:text-text-primary"
+                      >
+                        {launchPrompt.candidate ? 'Cancel' : 'Close'}
+                      </button>
+                    </div>
                   </div>
                 )}
 

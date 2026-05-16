@@ -363,7 +363,7 @@ export function CommandSuggestion({
                 an app quickly.
               </p>
               <p>
-                Press <span className="text-text-primary">Ctrl + Space</span>{' '}
+                Press <span className="text-text-primary">Alt + Space</span>{' '}
                 to show or hide Miaw.
               </p>
               <p>

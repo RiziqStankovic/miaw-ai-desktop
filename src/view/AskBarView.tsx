@@ -439,9 +439,14 @@ export function AskBarView({
         0,
         rawQuery.length - lastSlashWord.length,
       );
+      if (trigger === '/screen') {
+        onScreenshot();
+        setQuery(beforeSlash.trimEnd() ? `${beforeSlash.trimEnd()} ` : '');
+        return;
+      }
       setQuery(beforeSlash + trigger + ' ');
     },
-    [setQuery, rawQuery, lastSlashWord],
+    [setQuery, rawQuery, lastSlashWord, onScreenshot],
   );
 
   /**
@@ -574,6 +579,9 @@ export function AskBarView({
           return;
         }
         if (e.key === 'Enter' && !e.shiftKey) {
+          if (highlightedItem?.kind === 'calculation') {
+            return;
+          }
           e.preventDefault();
           if (highlightedItem && onLauncherSelect) {
             onLauncherSelect(highlightedItem);

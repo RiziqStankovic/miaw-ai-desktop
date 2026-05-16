@@ -321,4 +321,18 @@ describe('CommandSuggestion', () => {
       }
     }
   });
+
+  it('shows the updated Alt + Space quick guide shortcut', () => {
+    render(
+      <CommandSuggestion
+        commands={[SCREEN_CMD]}
+        highlightedIndex={0}
+        onSelect={vi.fn()}
+        showGuide
+      />,
+    );
+
+    expect(screen.getByText('Alt + Space')).toBeInTheDocument();
+    expect(screen.queryByText('Ctrl + Space')).not.toBeInTheDocument();
+  });
 });

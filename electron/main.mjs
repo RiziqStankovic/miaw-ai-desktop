@@ -1,4 +1,4 @@
-import 'dotenv/config';
+ import 'dotenv/config';
 
 import fs from 'node:fs';
 import { pathToFileURL } from 'node:url';
@@ -23,16 +23,12 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(__dirname, '..');
 const devServerUrl = process.env.VITE_DEV_SERVER_URL;
 const APP_ID = 'id.cloudfren.miaw';
-const iconPath =
-  process.platform === 'win32'
-    ? path.join(projectRoot, 'icons', 'miaw.ico')
-    : path.join(projectRoot, 'public', 'miaw-logo.png');
 const enableDevTools = process.env.THUKI_ENABLE_DEVTOOLS?.trim() === 'true';
 const openDevToolsOnStart =
   process.env.THUKI_OPEN_DEVTOOLS_ON_START?.trim() === 'true';
 const lockWindowPosition = process.env.THUKI_LOCK_WINDOW_POSITION?.trim() === 'true';
 const toggleShortcut =
-  process.env.THUKI_TOGGLE_SHORTCUT?.trim() || 'CommandOrControl+Space';
+  process.env.THUKI_TOGGLE_SHORTCUT?.trim() || 'Alt+Space';
 const newChatShortcut =
   process.env.THUKI_NEW_CHAT_SHORTCUT?.trim() || 'CommandOrControl+Alt+Space';
 const quitShortcut =
@@ -41,6 +37,20 @@ const quitShortcut =
 let mainWindow = null;
 let tray = null;
 let logFilePath = null;
+
+function resolveIconPath() {
+  const candidates =
+    process.platform === 'win32'
+      ? [
+          ...(app.isPackaged ? [path.join(process.resourcesPath, 'icons', 'miaw.ico')] : []),
+          path.join(projectRoot, 'icons', 'miaw.ico'),
+          path.join(projectRoot, 'icons', 'icon.ico'),
+          path.join(projectRoot, 'public', 'miaw-logo.png')
+        ]
+      : [path.join(projectRoot, 'public', 'miaw-logo.png')];
+
+  return candidates.find((candidate) => fs.existsSync(candidate)) ?? candidates[0];
+}
 
 function formatError(error) {
   if (error instanceof Error) {
@@ -86,6 +96,7 @@ function showWindow({ forceNewSession = false } = {}) {
     mainWindow.restore();
   }
 
+  mainWindow.setSkipTaskbar(true);
   mainWindow.setOpacity(0);
   mainWindow.show();
   mainWindow.focus();
@@ -119,7 +130,11 @@ function showWindow({ forceNewSession = false } = {}) {
 function createWindow() {
   const preloadPath = path.join(projectRoot, 'electron', 'preload.mjs');
   const indexPath = path.join(projectRoot, 'dist', 'index.html');
-  log('createWindow', `projectRoot=${projectRoot} preload=${preloadPath} index=${indexPath}`);
+  const iconPath = resolveIconPath();
+  log(
+    'createWindow',
+    `projectRoot=${projectRoot} preload=${preloadPath} index=${indexPath} icon=${iconPath}`
+  );
 
   mainWindow = new BrowserWindow({
     width: 600,
@@ -129,6 +144,7 @@ function createWindow() {
     transparent: true,
     resizable: true,
     alwaysOnTop: true,
+    skipTaskbar: true,
     backgroundColor: '#00000000',
     icon: iconPath,
     paintWhenInitiallyHidden: true,
@@ -220,7 +236,11 @@ function toggleWindow() {
 }
 
 function setupTray() {
+  const iconPath = resolveIconPath();
   const image = nativeImage.createFromPath(iconPath);
+  if (image.isEmpty()) {
+    log('tray icon load failed', `icon=${iconPath}`);
+  }
   tray = new Tray(image);
   tray.setToolTip('Miaw');
   tray.setContextMenu(

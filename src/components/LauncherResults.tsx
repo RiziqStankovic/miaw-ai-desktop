@@ -5,6 +5,7 @@ import type {
   LauncherItem,
   LauncherItemAction,
 } from '../config/launcher';
+import { Tooltip } from './Tooltip';
 
 const SEARCH_ICON = (
   <svg
@@ -219,6 +220,40 @@ const REVEAL_ICON = (
   </svg>
 );
 
+const TERMINAL_ICON = (
+  <svg
+    width="13"
+    height="13"
+    viewBox="0 0 16 16"
+    fill="none"
+    xmlns="http://www.w3.org/2000/svg"
+    aria-hidden="true"
+  >
+    <rect
+      x="1.75"
+      y="2.5"
+      width="12.5"
+      height="11"
+      rx="1.8"
+      stroke="currentColor"
+      strokeWidth="1.2"
+    />
+    <path
+      d="M4.25 6L6.5 8L4.25 10"
+      stroke="currentColor"
+      strokeWidth="1.2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+    <path
+      d="M8 10H11.25"
+      stroke="currentColor"
+      strokeWidth="1.2"
+      strokeLinecap="round"
+    />
+  </svg>
+);
+
 function iconForItem(item: LauncherItem): React.ReactNode {
   switch (item.kind) {
     case 'calculation':
@@ -258,14 +293,25 @@ function actionsForItem(
     case 'calculation':
       return [{ id: 'copy_path', label: 'Copy result', icon: COPY_ICON }];
     case 'web':
-      return [{ id: 'copy_path', label: 'Copy URL', icon: COPY_ICON }];
+      return [
+        { id: 'open_console', label: 'Open target in terminal', icon: TERMINAL_ICON },
+        { id: 'copy_path', label: 'Copy URL', icon: COPY_ICON },
+      ];
     case 'app':
       return [
+        { id: 'open_console', label: 'Open target in terminal', icon: TERMINAL_ICON },
         { id: 'reveal', label: 'Open containing folder', icon: REVEAL_ICON },
         { id: 'copy_path', label: 'Copy path', icon: COPY_ICON },
       ];
     case 'file':
       return [
+        {
+          id: 'open_console',
+          label: item.isDirectory
+            ? 'Open folder in terminal'
+            : 'Open target folder in terminal',
+          icon: TERMINAL_ICON,
+        },
         {
           id: 'reveal',
           label: item.isDirectory
@@ -353,35 +399,26 @@ export function LauncherResults({
                       {actions.length > 0 ? (
                         <div className="flex items-center gap-1">
                           {actions.map((action) => (
-                            <button
-                              key={action.id}
-                              type="button"
-                              aria-label={action.label}
-                              className={`window-no-drag flex h-7 w-7 items-center justify-center rounded-md border border-transparent text-text-secondary transition-colors ${
-                                isHighlighted
-                                  ? 'hover:border-surface-border hover:bg-white/8 hover:text-text-primary'
-                                  : 'hover:border-white/10 hover:bg-white/6 hover:text-text-primary'
-                              }`}
-                              onMouseDown={(e) => {
-                                e.preventDefault();
-                                e.stopPropagation();
-                                onAction(item, action.id);
-                              }}
-                            >
-                              {action.icon}
-                            </button>
+                            <Tooltip key={action.id} label={action.label}>
+                              <button
+                                type="button"
+                                aria-label={action.label}
+                                className={`window-no-drag flex h-7 w-7 items-center justify-center rounded-md border border-transparent text-text-secondary transition-colors ${
+                                  isHighlighted
+                                    ? 'hover:border-surface-border hover:bg-white/8 hover:text-text-primary'
+                                    : 'hover:border-white/10 hover:bg-white/6 hover:text-text-primary'
+                                }`}
+                                onMouseDown={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  onAction(item, action.id);
+                                }}
+                              >
+                                {action.icon}
+                              </button>
+                            </Tooltip>
                           ))}
                         </div>
-                      ) : null}
-                      {item.accent ? (
-                        <span className="rounded-md bg-white/[0.04] px-1.5 py-0.5 text-[10px] text-text-secondary">
-                          {item.accent}
-                        </span>
-                      ) : null}
-                      {item.hint ? (
-                        <span className="rounded-md border border-surface-border px-1.5 py-0.5 text-[10px] text-text-secondary">
-                          {item.hint}
-                        </span>
                       ) : null}
                     </div>
                   </li>

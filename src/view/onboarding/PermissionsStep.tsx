@@ -426,7 +426,7 @@ export function PermissionsStep() {
                 Screen Recording
               </div>
               <div style={{ fontSize: 12, color: '#6b6660', lineHeight: 1.35 }}>
-                Needed for /screen to capture your entire screen
+                Needed for /screen to capture your screen
               </div>
             </div>
           </StepCard>

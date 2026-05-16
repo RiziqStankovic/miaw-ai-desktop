@@ -1,4 +1,4 @@
-{
+  {
   "name": "miaw-windows",
   "version": "0.1.0",
   "private": true,
@@ -52,6 +52,12 @@
       "output": "release"
     },
     "afterPack": "scripts/apply-windows-icon.mjs",
+    "extraResources": [
+      {
+        "from": "icons/miaw.ico",
+        "to": "icons/miaw.ico"
+      }
+    ],
     "files": [
       "dist/**",
       "electron/**",

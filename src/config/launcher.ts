@@ -37,7 +37,12 @@ export interface LauncherItem {
   readonly isDirectory?: boolean;
 }
 
-export type LauncherItemAction = 'open' | 'insert' | 'copy_path' | 'reveal';
+export type LauncherItemAction =
+  | 'open'
+  | 'insert'
+  | 'copy_path'
+  | 'reveal'
+  | 'open_console';
 
 export interface LauncherSection {
   readonly id: string;

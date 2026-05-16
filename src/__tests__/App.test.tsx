@@ -140,7 +140,7 @@ describe('App', () => {
     expect(invoke).toHaveBeenCalledWith('notify_overlay_hidden');
   });
 
-  it('hides overlay on Escape key and cancels an active /search turn', async () => {
+  it('hides overlay on Escape key without cancelling an active /search turn in chat mode', async () => {
     vi.useFakeTimers();
     enableChannelCapture();
     render(<App />);
@@ -164,9 +164,13 @@ describe('App', () => {
       await Promise.resolve();
     });
 
-    expect(invoke).toHaveBeenCalledWith('cancel_generation');
     expect(invoke).toHaveBeenCalledWith('notify_overlay_hidden');
+    expect(invoke).not.toHaveBeenCalledWith('cancel_generation');
     expect(screen.queryByPlaceholderText('Ask Thuki anything...')).toBeNull();
+
+    await showOverlay();
+
+    expect(screen.getByPlaceholderText('Reply...')).toBeInTheDocument();
     vi.useRealTimers();
   });
 
@@ -209,6 +213,29 @@ describe('App', () => {
     await showOverlay('some code snippet');
 
     expect(screen.getByText(/some code snippet/)).toBeInTheDocument();
+  });
+
+  it('clears selected context after close when the overlay never entered chat mode', async () => {
+    vi.useFakeTimers();
+    render(<App />);
+    await act(async () => {});
+
+    await showOverlay('take action text');
+    expect(screen.getByText(/take action text/i)).toBeInTheDocument();
+
+    await act(async () => {
+      fireEvent.keyDown(window, { key: 'Escape' });
+      vi.advanceTimersByTime(351);
+      await Promise.resolve();
+    });
+
+    await showOverlay();
+
+    expect(screen.queryByText(/take action text/i)).toBeNull();
+    expect(
+      screen.getByPlaceholderText('Ask Thuki anything...'),
+    ).toBeInTheDocument();
+    vi.useRealTimers();
   });
 
   it('enters hiding state on hide-request visibility event', async () => {

@@ -57,6 +57,59 @@ body {
   -webkit-app-region: no-drag;
 }
 
+.window-resize-handle {
+  position: absolute;
+  top: 10px;
+  bottom: 10px;
+  width: 14px;
+  z-index: 40;
+  cursor: ew-resize;
+  -webkit-app-region: no-drag;
+}
+
+.window-resize-handle-left {
+  left: -10px;
+}
+
+.window-resize-handle-right {
+  right: -10px;
+}
+
+html.window-manual-resize,
+html.window-manual-resize body {
+  cursor: ew-resize !important;
+}
+
+html.window-manual-resize .morphing-container,
+html.window-manual-resize .history-dropdown,
+html.window-manual-resize .settings-dropdown {
+  transition: none !important;
+  animation: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  box-shadow: none !important;
+}
+
+html.window-manual-resize .window-shell {
+  transform: none !important;
+  transition: none !important;
+  animation: none !important;
+  filter: none !important;
+  contain: paint;
+  will-change: auto !important;
+}
+
+html.window-manual-resize .window-shell * {
+  transition: none !important;
+  animation: none !important;
+}
+
+html.window-manual-resize .morphing-container::before,
+html.window-manual-resize .morphing-container::after {
+  opacity: 0 !important;
+  animation: none !important;
+}
+
 .window-traffic-dot {
   width: 0.75rem;
   height: 0.75rem;

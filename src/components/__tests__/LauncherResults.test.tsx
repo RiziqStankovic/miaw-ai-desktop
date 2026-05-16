@@ -33,6 +33,21 @@ const sections: LauncherSection[] = [
       },
     ],
   },
+  {
+    id: 'apps',
+    title: 'Applications',
+    items: [
+      {
+        id: 'app:chrome',
+        kind: 'app',
+        title: 'Google Chrome',
+        subtitle: 'Application',
+        value: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+        hint: 'Launch',
+        accent: 'App',
+      },
+    ],
+  },
 ];
 
 describe('LauncherResults', () => {
@@ -77,5 +92,44 @@ describe('LauncherResults', () => {
     const options = screen.getAllByRole('option');
     expect(options[0]).toHaveAttribute('aria-selected', 'false');
     expect(options[1]).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('renders launcher action buttons as icon-only controls with tooltip text', () => {
+    render(
+      <LauncherResults
+        sections={sections}
+        highlightedIndex={2}
+        onSelect={vi.fn()}
+        onAction={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByText('App')).not.toBeInTheDocument();
+    expect(screen.queryByText('Launch')).not.toBeInTheDocument();
+
+    const consoleButton = screen.getByRole('button', {
+      name: 'Open target in terminal',
+    });
+    fireEvent.mouseEnter(consoleButton);
+
+    expect(screen.getByText('Open target in terminal')).toBeInTheDocument();
+  });
+
+  it('calls onAction when the console button is clicked', () => {
+    const onAction = vi.fn();
+    render(
+      <LauncherResults
+        sections={sections}
+        highlightedIndex={2}
+        onSelect={vi.fn()}
+        onAction={onAction}
+      />,
+    );
+
+    fireEvent.mouseDown(
+      screen.getByRole('button', { name: 'Open target in terminal' }),
+    );
+
+    expect(onAction).toHaveBeenCalledWith(sections[2].items[0], 'open_console');
   });
 });

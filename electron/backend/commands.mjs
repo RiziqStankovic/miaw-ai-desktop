@@ -1,8 +1,9 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
-import { desktopCapturer, shell } from 'electron';
+import { clipboard, desktopCapturer, screen, shell } from 'electron';
 import initSqlJs from 'sql.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -19,10 +20,17 @@ const PRESERVE_USER_WINDOW_WIDTH =
 const SCREEN_CAPTURE_FADE_STEP_MS = 16;
 const SCREEN_CAPTURE_FADE_STEPS = 8;
 const SCREEN_CAPTURE_SETTLE_DELAY_MS = 60;
+const SCREEN_SNIP_POLL_INTERVAL_MS = 250;
+const SCREEN_SNIP_TIMEOUT_MS = 20000;
 const START_MENU_INDEX_MAX_DEPTH = 6;
 const START_MENU_INDEX_MAX_ENTRIES = 2500;
 const LOCAL_FILE_INDEX_MAX_DEPTH = 4;
 const LOCAL_FILE_INDEX_MAX_ENTRIES = 1800;
+const LAUNCHER_APP_INDEX_CACHE_VERSION = 2;
+const LAUNCHER_FILE_INDEX_CACHE_VERSION = 1;
+const MIN_WINDOW_WIDTH = 420;
+const MAX_WINDOW_WIDTH = 960;
+const WIDE_WINDOW_MARGIN = 40;
 
 function nowMillis() {
   return Date.now();
@@ -171,6 +179,44 @@ function delay(ms) {
   });
 }
 
+function runPowerShellJson(command) {
+  return new Promise((resolve, reject) => {
+    const child = spawn('powershell.exe', ['-NoProfile', '-Command', command], {
+      windowsHide: true
+    });
+
+    let stdout = '';
+    let stderr = '';
+
+    child.stdout.on('data', (chunk) => {
+      stdout += String(chunk ?? '');
+    });
+    child.stderr.on('data', (chunk) => {
+      stderr += String(chunk ?? '');
+    });
+    child.on('error', reject);
+    child.on('close', (code) => {
+      if (code !== 0) {
+        reject(new Error(stderr.trim() || `PowerShell exited with code ${code}`));
+        return;
+      }
+
+      const trimmed = stdout.trim();
+      if (!trimmed) {
+        resolve([]);
+        return;
+      }
+
+      try {
+        const parsed = JSON.parse(trimmed);
+        resolve(Array.isArray(parsed) ? parsed : [parsed]);
+      } catch (error) {
+        reject(error);
+      }
+    });
+  });
+}
+
 function normalizeSearchText(value) {
   return String(value ?? '')
     .toLowerCase()
@@ -233,6 +279,12 @@ function scoreSearchMatch(query, primaryText, secondaryText = '') {
     return Number.NEGATIVE_INFINITY;
   }
 
+  const hasExactPhraseMatch =
+    primary.includes(normalizedQuery) || combined.includes(normalizedQuery);
+  if (!hasExactPhraseMatch && tokens.length > 1 && matchedTokens < tokens.length) {
+    return Number.NEGATIVE_INFINITY;
+  }
+
   if (matchedTokens === tokens.length) {
     score += 24;
   }
@@ -289,6 +341,44 @@ function displayNameFromPath(filePath) {
   return path.basename(filePath, path.extname(filePath)).replace(/\s+/g, ' ').trim();
 }
 
+function appsFolderTarget(appId) {
+  return `shell:AppsFolder\\${String(appId ?? '').trim()}`;
+}
+
+function quoteForCmd(value) {
+  return `"${String(value ?? '').replace(/"/g, '""')}"`;
+}
+
+function terminalDirectoryForTarget(targetPath, isDirectory) {
+  const resolvedPath = String(targetPath ?? '').trim();
+  if (!resolvedPath) {
+    throw new Error('Missing terminal target path.');
+  }
+  return isDirectory ? resolvedPath : path.dirname(resolvedPath);
+}
+
+function openTerminalForTarget({ targetPath, kind, isDirectory }) {
+  const shellExecutable = process.env.ComSpec || 'cmd.exe';
+  const normalizedKind = String(kind ?? '').trim();
+  const resolvedPath = String(targetPath ?? '').trim();
+
+  if (!resolvedPath) {
+    throw new Error('Missing terminal target.');
+  }
+
+  const command =
+    normalizedKind === 'web'
+      ? `start "" ${quoteForCmd(resolvedPath)}`
+      : `cd /d ${quoteForCmd(terminalDirectoryForTarget(resolvedPath, Boolean(isDirectory)))}`;
+
+  const child = spawn(shellExecutable, ['/K', command], {
+    detached: true,
+    stdio: 'ignore',
+    windowsHide: false
+  });
+  child.unref();
+}
+
 async function indexWindowsApps(app) {
   const startMenuDirs = [
     path.join(app.getPath('appData'), 'Microsoft', 'Windows', 'Start Menu', 'Programs'),
@@ -306,6 +396,7 @@ async function indexWindowsApps(app) {
   }
 
   const deduped = new Map();
+  const seenPaths = new Set();
   for (const entryMeta of files) {
     if (entryMeta.isDirectory) {
       continue;
@@ -325,6 +416,7 @@ async function indexWindowsApps(app) {
     if (deduped.has(dedupeKey)) {
       continue;
     }
+    seenPaths.add(filePath.toLowerCase());
 
     deduped.set(dedupeKey, {
       id: randomId(),
@@ -338,6 +430,42 @@ async function indexWindowsApps(app) {
       path: filePath,
       searchText: `${normalizeSearchText(title)} ${normalizeSearchText(filePath)}`
     });
+  }
+
+  try {
+    const startApps = await runPowerShellJson(
+      'Get-StartApps | Select-Object Name,AppID | ConvertTo-Json -Compress'
+    );
+
+    for (const entry of startApps) {
+      const title = String(entry?.Name ?? '').trim();
+      const appId = String(entry?.AppID ?? '').trim();
+      if (!title || !appId) {
+        continue;
+      }
+
+      const shellTarget = appsFolderTarget(appId);
+      const normalizedTarget = shellTarget.toLowerCase();
+      if (seenPaths.has(normalizedTarget)) {
+        continue;
+      }
+
+      const dedupeKey = `${normalizeSearchText(title)}::${normalizedTarget}`;
+      if (deduped.has(dedupeKey)) {
+        continue;
+      }
+
+      deduped.set(dedupeKey, {
+        id: randomId(),
+        title,
+        subtitle: 'Installed app',
+        path: shellTarget,
+        searchText: `${normalizeSearchText(title)} ${normalizeSearchText(appId)} ${normalizeSearchText(shellTarget)}`
+      });
+      seenPaths.add(normalizedTarget);
+    }
+  } catch {
+    // Start Menu shortcuts remain a valid fallback when Get-StartApps is unavailable.
   }
 
   return [...deduped.values()].sort((a, b) => a.title.localeCompare(b.title));
@@ -361,14 +489,29 @@ async function getWindowsAppIndex(app, backend) {
 
 async function indexLauncherFiles(app) {
   const homeDir = app.getPath('home');
+  const oneDriveDir = process.env.OneDrive?.trim();
   const candidateDirs = [
     path.join(homeDir, 'Desktop'),
     path.join(homeDir, 'Documents'),
-    path.join(homeDir, 'Downloads')
+    path.join(homeDir, 'Downloads'),
+    path.join(homeDir, 'Pictures'),
+    path.join(homeDir, 'Videos'),
+    path.join(homeDir, 'Music'),
+    ...(oneDriveDir
+      ? [
+          path.join(oneDriveDir, 'Desktop'),
+          path.join(oneDriveDir, 'Documents'),
+          path.join(oneDriveDir, 'Downloads'),
+          path.join(oneDriveDir, 'Pictures'),
+          path.join(oneDriveDir, 'Videos'),
+          path.join(oneDriveDir, 'Music')
+        ]
+      : [])
   ];
 
   const files = [];
-  for (const dir of candidateDirs) {
+  const uniqueCandidateDirs = [...new Set(candidateDirs.map((dir) => path.resolve(dir)))];
+  for (const dir of uniqueCandidateDirs) {
     files.push(
       ...(await walkDirectory(dir, {
         maxDepth: LOCAL_FILE_INDEX_MAX_DEPTH,
@@ -420,7 +563,14 @@ async function getLauncherFileIndex(app, backend) {
   return entries;
 }
 
-function sanitizeLauncherCache(cache) {
+function sanitizeLauncherCache(cache, expectedVersion, persistedVersion) {
+  if (Number(persistedVersion ?? 0) !== expectedVersion) {
+    return {
+      indexedAt: 0,
+      entries: []
+    };
+  }
+
   const safeEntries = Array.isArray(cache?.entries) ? cache.entries : [];
   const indexedAt = Number(cache?.indexedAt ?? 0);
   return {
@@ -434,8 +584,16 @@ async function loadLauncherIndexCache(userDataPath) {
   const parsed = await readJsonIfExists(filePath, null);
   return {
     filePath,
-    appIndex: sanitizeLauncherCache(parsed?.appIndex),
-    fileIndex: sanitizeLauncherCache(parsed?.fileIndex)
+    appIndex: sanitizeLauncherCache(
+      parsed?.appIndex,
+      LAUNCHER_APP_INDEX_CACHE_VERSION,
+      parsed?.appIndexVersion
+    ),
+    fileIndex: sanitizeLauncherCache(
+      parsed?.fileIndex,
+      LAUNCHER_FILE_INDEX_CACHE_VERSION,
+      parsed?.fileIndexVersion
+    )
   };
 }
 
@@ -448,7 +606,9 @@ async function persistLauncherIndexCache(backend) {
     backend.launcherCacheFilePath,
     JSON.stringify(
       {
+        appIndexVersion: LAUNCHER_APP_INDEX_CACHE_VERSION,
         appIndex: backend.launcherAppIndex,
+        fileIndexVersion: LAUNCHER_FILE_INDEX_CACHE_VERSION,
         fileIndex: backend.launcherFileIndex
       },
       null,
@@ -697,6 +857,64 @@ async function capturePrimaryScreenPngWithoutWindow(window) {
   }
 }
 
+function readClipboardImagePng() {
+  const image = clipboard.readImage();
+  if (!image || image.isEmpty()) {
+    return null;
+  }
+
+  const png = image.toPNG();
+  return png.length > 0 ? png : null;
+}
+
+async function waitForSnippedClipboardImage(previousPng) {
+  const startedAt = nowMillis();
+
+  while (nowMillis() - startedAt < SCREEN_SNIP_TIMEOUT_MS) {
+    await delay(SCREEN_SNIP_POLL_INTERVAL_MS);
+    const nextPng = readClipboardImagePng();
+    if (!nextPng) {
+      continue;
+    }
+
+    if (previousPng && Buffer.compare(previousPng, nextPng) === 0) {
+      continue;
+    }
+
+    return nextPng;
+  }
+
+  return null;
+}
+
+async function captureScreenSnipPngWithoutWindow(window) {
+  const shouldRestore =
+    window && !window.isDestroyed() && window.isVisible() && !window.isMinimized();
+  const previousClipboardPng = readClipboardImagePng();
+
+  if (!shouldRestore) {
+    await shell.openExternal('ms-screenclip:');
+    return waitForSnippedClipboardImage(previousClipboardPng);
+  }
+
+  const originalOpacity = window.getOpacity();
+  await animateWindowOpacity(window, originalOpacity, 0);
+  window.hide();
+  await delay(SCREEN_CAPTURE_SETTLE_DELAY_MS);
+
+  try {
+    await shell.openExternal('ms-screenclip:');
+    return await waitForSnippedClipboardImage(previousClipboardPng);
+  } finally {
+    if (!window.isDestroyed()) {
+      window.setOpacity(0);
+      window.show();
+      window.focus();
+      await animateWindowOpacity(window, 0, originalOpacity);
+    }
+  }
+}
+
 async function createImageStore(userDataPath) {
   const imagesDir = path.join(userDataPath, 'images');
   await ensureDir(imagesDir);
@@ -747,6 +965,8 @@ export async function initializeBackend({ app }) {
     inMemoryConversation: [],
     activeGeneration: null,
     launchShown: false,
+    isWide: false,
+    wideRestoreBounds: null,
     launcherCacheFilePath: launcherCache.filePath,
     launcherAppIndex: {
       indexedAt: launcherCache.appIndex.indexedAt,
@@ -862,11 +1082,36 @@ export function createCommandHandlers({ app, backend, getWindow }) {
         return;
       }
 
-      if (win.isMaximized()) {
-        win.unmaximize();
-      } else {
-        win.maximize();
+      const currentBounds = win.getBounds();
+
+      if (backend.isWide && backend.wideRestoreBounds) {
+        win.setBounds(backend.wideRestoreBounds);
+        backend.isWide = false;
+        backend.wideRestoreBounds = null;
+        return;
       }
+
+      const display = screen.getDisplayMatching(currentBounds);
+      const workArea = display.workArea;
+      const targetWidth = Math.min(
+        MAX_WINDOW_WIDTH,
+        Math.max(MIN_WINDOW_WIDTH, workArea.width - WIDE_WINDOW_MARGIN * 2)
+      );
+      const centerX = currentBounds.x + currentBounds.width / 2;
+      const nextX = Math.round(
+        Math.max(
+          workArea.x,
+          Math.min(workArea.x + workArea.width - targetWidth, centerX - targetWidth / 2)
+        )
+      );
+
+      backend.wideRestoreBounds = currentBounds;
+      backend.isWide = true;
+      win.setBounds({
+        ...currentBounds,
+        x: nextX,
+        width: Math.round(targetWidth)
+      });
     },
     '__window.setSize': async ({ width, height }) => {
       const win = getWindow();
@@ -879,6 +1124,49 @@ export function createCommandHandlers({ app, backend, getWindow }) {
         ...bounds,
         width: PRESERVE_USER_WINDOW_WIDTH ? bounds.width : Math.ceil(width),
         height: Math.ceil(height)
+      });
+    },
+    '__window.resizeHorizontal': async ({ edge, deltaX, minWidth, maxWidth }) => {
+      const win = getWindow();
+      if (!win) {
+        return;
+      }
+
+      const bounds = win.getBounds();
+      const direction = edge === 'left' ? 'left' : 'right';
+      const delta = Number(deltaX ?? 0);
+      if (!Number.isFinite(delta) || delta === 0) {
+        return;
+      }
+
+      const lowerBound = Math.max(MIN_WINDOW_WIDTH, Number(minWidth ?? MIN_WINDOW_WIDTH));
+      const upperBound = Math.max(lowerBound, Number(maxWidth ?? MAX_WINDOW_WIDTH));
+
+      if (direction === 'right') {
+        const nextWidth = Math.min(upperBound, Math.max(lowerBound, bounds.width + delta));
+        if (nextWidth !== bounds.width) {
+          backend.isWide = false;
+          win.setBounds({
+            ...bounds,
+            width: Math.round(nextWidth)
+          });
+        }
+        return;
+      }
+
+      const proposedWidth = bounds.width - delta;
+      const nextWidth = Math.min(upperBound, Math.max(lowerBound, proposedWidth));
+      const widthChange = nextWidth - bounds.width;
+
+      if (widthChange === 0) {
+        return;
+      }
+
+      backend.isWide = false;
+      win.setBounds({
+        ...bounds,
+        x: Math.round(bounds.x - widthChange),
+        width: Math.round(nextWidth)
       });
     },
     get_model_config: async () => backend.config.models,
@@ -998,7 +1286,18 @@ export function createCommandHandlers({ app, backend, getWindow }) {
       await shell.openExternal(url);
     },
     open_path: async ({ path: targetPath }) => {
-      const error = await shell.openPath(String(targetPath ?? ''));
+      const resolvedPath = String(targetPath ?? '');
+      if (/^shell:appsfolder\\/i.test(resolvedPath)) {
+        const child = spawn('explorer.exe', [resolvedPath], {
+          detached: true,
+          stdio: 'ignore',
+          windowsHide: true
+        });
+        child.unref();
+        return;
+      }
+
+      const error = await shell.openPath(resolvedPath);
       if (error) {
         throw new Error(error);
       }
@@ -1013,6 +1312,13 @@ export function createCommandHandlers({ app, backend, getWindow }) {
         return;
       }
       shell.showItemInFolder(resolvedPath);
+    },
+    open_in_terminal: async ({ path: targetPath, kind, isDirectory }) => {
+      openTerminalForTarget({
+        targetPath,
+        kind,
+        isDirectory
+      });
     },
     search_launcher_apps: async ({ query, limit }) => {
       if (!normalizeSearchText(query)) {
@@ -1297,7 +1603,10 @@ export function createCommandHandlers({ app, backend, getWindow }) {
       return backend.images.cleanupOrphans(referencedPaths ?? []);
     },
     capture_screenshot_command: async () => {
-      const png = await capturePrimaryScreenPngWithoutWindow(getWindow());
+      const png = await captureScreenSnipPngWithoutWindow(getWindow());
+      if (!png) {
+        return null;
+      }
       return Buffer.from(png).toString('base64');
     },
     capture_full_screen_command: async () => {
